@@ -1,0 +1,295 @@
+* {
+	margin: 0;
+	padding: 0;
+	border: 0;
+}
+
+ul {
+    list-style-type: none;
+}
+
+a {
+	color: #1177BB;
+	font-weight: bold;
+}
+a:hover {
+	color: #88AAFF;
+	font-weight: bold;
+	text-decoration: none;
+}
+
+body {
+	color: #4F4F4F;
+	margin: 0 auto;
+	width: 1000px;
+	background-color: #BBDDAA;
+}
+
+body.game {
+	background-color: #DEFFBF;
+}
+
+hr {
+	color: #008800;
+	height: 1px;
+}
+
+table.base {
+	border-collapse: collapse;
+}
+
+h4.heading {
+	padding: 4px;
+	padding-left: 8px;
+	border: 2px solid #00AA00;
+	border-radius: 10px;
+	background-color: #DEFFBF;
+}
+
+div.normal {
+	padding: 8px;
+	line-height: 150%;
+}
+div.normal_top {
+	line-height: 150%;
+}
+div.inner {
+	padding-top: 8px;
+	line-height: 120%;
+}
+
+td.caption {
+	font-size: 90%;
+	text-align: center;
+}
+span.caption {
+	font-size: 80%;
+}
+
+span.bold {
+	font-weight: bold;
+}
+.emphasis {
+	font-weight: bold;
+	font-size: 120%;
+}
+
+table.news {
+	margin: 8px;
+}
+td.date {
+	color: #008800;
+	vertical-align: top;
+	font-size: 90%;
+	white-space: nowrap;
+}
+td.schedule {
+	color: #FF0099;
+	vertical-align: top;
+	font-size: 90%;
+	white-space: nowrap;
+}
+td.news {
+	vertical-align: top;
+	font-size: 90%;
+}
+span.schedule {
+	color: #FF0099;
+}
+
+table.normal {
+	border-collapse: collapse;
+}
+table.inner {
+	margin-top: 8px;
+	border-collapse: collapse;
+}
+td.key {
+	padding-top: 4px;
+	padding-bottom: 4px;
+	padding-left: 6px;
+	padding-right: 6px;
+	border: 1px solid #008800;
+	background-color: #DEFFBF;
+	text-align: center;
+	white-space: nowrap;
+	line-height: 120%;
+}
+td.key_left {
+	padding-top: 4px;
+	padding-bottom: 4px;
+	padding-left: 6px;
+	padding-right: 6px;
+	border: 1px solid #008800;
+	background-color: #DEFFBF;
+	white-space: nowrap;
+	line-height: 120%;
+}
+td.key_right {
+	padding-top: 4px;
+	padding-bottom: 4px;
+	padding-left: 6px;
+	padding-right: 6px;
+	border: 1px solid #008800;
+	background-color: #DEFFBF;
+	text-align: right;
+	white-space: nowrap;
+	line-height: 120%;
+}
+td.value {
+	padding-top: 4px;
+	padding-bottom: 4px;
+	padding-left: 6px;
+	padding-right: 6px;
+	border: 1px solid #008800;
+	background-color: #F4FFDD;
+	line-height: 120%;
+}
+td.text {
+	padding-left: 2px;
+	line-height: 120%;
+}
+td.number_key {
+	padding-top: 4px;
+	padding-bottom: 4px;
+	padding-left: 6px;
+	padding-right: 6px;
+	border: 1px solid #008800;
+	background-color: #DEFFBF;
+	text-align: right;
+	white-space: nowrap;
+	line-height: 120%;
+}
+td.number {
+	padding-top: 4px;
+	padding-bottom: 4px;
+	padding-left: 6px;
+	padding-right: 6px;
+	border: 1px solid #008800;
+	background-color: #F4FFDD;
+	text-align: right;
+	white-space: nowrap;
+	line-height: 120%;
+}
+
+td.key_server_status {
+	padding: 4px;
+	padding-top: 2px;
+	padding-bottom: 2px;
+	border: 1px solid #008800;
+	background-color: #DEFFBF;
+	text-align: right;
+	white-space: nowrap;
+}
+td.number_server_status {
+	padding: 4px;
+	padding-top: 2px;
+	padding-bottom: 2px;
+	border: 1px solid #008800;
+	background-color: #F4FFDD;
+	text-align: right;
+	white-space: nowrap;
+}
+
+div.subtitle {
+	color: #008800;
+	padding-bottom: 8px;
+	line-height: 150%;
+}
+div.subtitle_bottom {
+	color: #008800;
+	line-height: 100%;
+}
+
+span.menu_current {
+	color: #88AAFF;
+	font-weight: bold;
+}
+span.prophet {
+	color: #008F6F;
+}
+span.godfield {
+	color: #6699EE;
+}
+span.dead {
+	color: #FF0000;
+}
+
+span.kana {
+	font-weight: normal;
+	font-size: 80%;
+}
+
+span.mars {
+	color: #FF6666;
+}
+span.mercury {
+	color: #6666FF;
+}
+span.jupiter {
+	color: #FF9900;
+}
+span.saturn {
+	color: #6688AA;
+}
+span.uranus {
+	color: #C5C500;
+}
+span.pluto {
+	color: #AA55CC;
+}
+span.neptune {
+	color: #00AAEE;
+}
+span.venus {
+	color: #008800;
+}
+span.earth {
+	color: #EEAAAA;
+}
+span.moon {
+	color: #BBBB77;
+}
+
+span.small {
+	font-size: 90%;
+}
+
+img.banner {
+	width: 200px;
+	height: 40px;
+}
+
+div.mogera_text {
+	float: left;
+	margin: 8px;
+	padding: 8px;
+	border: 1px solid #008800;
+	background-color: #F4FFDD;
+	line-height: 150%;
+	font-size: 90%;
+}
+
+div.data_link {
+	margin: 50px 0;
+	padding: 8px;
+	border: 1px solid #008800;
+	background-color: #F4FFDD;
+	line-height: 150%;
+	font-size: 90%;
+}
+
+div.new-version-link {
+	float: left;
+	margin: 10px 0 0 50px;
+	padding: 8px;
+	border: 1px solid #008800;
+	background-color: #F4FFDD;
+	line-height: 150%;
+	font-size: 90%;
+}
+
+img {
+	border-width: 0px;
+}
+
