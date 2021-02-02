@@ -12,7 +12,9 @@ This server emulator is not nearly perfect, but it works! (as shown in the gif b
 - Bots are not very smart, they just thrown the artifacts that he can use at the moment. (And was programmed to)
 - Bots are not replacing a disconnected player because they are not very reliable.
 - Some artifacts do not have a programmed behaviour, or are not complete, for example the `String of Fate`.
+- Exchange is not programmed yet.
 - Gods are not programmed yet.
+- Team play does not work correctly yet.
 - Client backup may not be 100% complete (maybe 95%?).
 
 ![ScreenShot](https://i.imgur.com/JjMTum8.gif)
