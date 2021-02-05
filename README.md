@@ -10,8 +10,9 @@ This server emulator is not nearly perfect, but it works! (as shown in the gif b
 - It is very easy to the client-side match desync with the server-side match.
 - The artifacts distribution is not how it should be.
 - Bots are not very smart, they just thrown the artifacts that he can use at the moment. (And was programmed to)
+- Bots completely ignore harms effects.
 - Bots are not replacing a disconnected player because they are not very reliable.
-- Some artifacts do not have a programmed behaviour, or are not complete, for example the `String of Fate`.
+- Some artifacts do not have a programmed behaviour, or are not complete, for example the `String of Fate` and `Dangerous Pestle`.
 - Exchange is not programmed yet.
 - Gods are not programmed yet.
 - Team play does not work correctly yet.

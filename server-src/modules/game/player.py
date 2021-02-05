@@ -13,6 +13,15 @@ class Player:
             self.server = user.server
             self.room = user.room
 
+        self.reset()
+
+    def __str__(self):
+        return "<Player {name}>".format(name=self.name)
+
+    def hasLowerDisease(self):
+        return self.disease in ["COLD", "FEVER", "FOG", "GLORY"]
+
+    def reset(self):
         self.ready = bool()
         self.dead = True
 
@@ -21,19 +30,13 @@ class Player:
         self.yen = 20
 
         self.disease = None
+        self.worseChance = int()
         self.harms = list()
 
-        self.deal = list()
+        self.deal = 10
 
         self.magics = list()
         self.items = list()
-        self.resetItems()
-
-    def __str__(self):
-        return "<Player {name}>".format(name=self.name)
-
-    def hasLowerDisease(self):
-        return self.disease in ["COLD", "FEVER", "FOG", "GLORY"]
 
     def diseaseEffect(self, selfAttack = False):
         if not self.disease or (not selfAttack and self.hp == 0):
@@ -49,7 +52,6 @@ class Player:
         elif self.disease == "HELL":
             damage = 5
         elif self.disease == "HEAVEN":
-            # TODO: Heaven should kill at some point...
             damage = -5
         else:
             assert False, "Unimplemented disease: " + self.disease
@@ -72,6 +74,7 @@ class Player:
                         self.disease = diseases[idx + 1]
             else:
                 self.disease = harm
+            self.worseChance = 0
         else:
             if not harm in self.harms:
                 self.harms.append(harm)
@@ -81,19 +84,18 @@ class Player:
         if not onlyLower:
             print "Remove all harms"
             self.disease = None
+            self.worseChance = 0
             self.harms = list()
             return
 
         print "Remove lower harms"
         if self.disease == "COLD" or self.disease == "FEVER":
             self.disease = None
+            self.worseChance = 0
         if "FOG" in self.harms:
             self.harms.remove("FOG")
         if "GLORY" in self.harms:
             self.harms.remove("GLORY")
-
-    def resetItems(self):
-        self.items = list()
 
     def dealItem(self, id, fromBuy=False):
         print self.name + " deal " + str(id)

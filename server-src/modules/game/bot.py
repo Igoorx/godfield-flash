@@ -211,6 +211,10 @@ class Bot(Player):
                 return item
 
     def checkIsGood(self, item):
+        # Magics
+        if item.type == "MAGIC":
+            return True
+
         # Healers
         if item.attackKind in ["INCREASE_HP", "INCREASE_MP", "REMOVE_ALL_HARMS", "REMOVE_LOWER_HARMS"]:
             return True
@@ -220,7 +224,7 @@ class Bot(Player):
             return True
 
         # Protectors
-        if item.defenseKind in ["REFLECT_ANY"]:
+        if item.defenseKind in ["REFLECT_ANY", "COUNTER"]:
             return True
 
         return False
@@ -404,7 +408,7 @@ class Bot(Player):
                             pieces += self.getItemsByAE("ADD_ATTRIBUTE", item.attribute)
                         self.removeExcessMagic(pieces)
                         damage = self.getItemsDamage(pieces)
-                        if damage > 5:
+                        if damage > 5 and self.room.getAlivesCount() > 2:
                             pieces += self.getItemsByAE("WIDE_ATK")
                         self.removeExcessMagic(pieces)
                         return target, pieces
@@ -419,7 +423,7 @@ class Bot(Player):
                             pieces += self.getItemsByAE("ADD_ATTRIBUTE", item.attribute)
                         self.removeExcessMagic(pieces)
                         damage = self.getItemsDamage(pieces)
-                        if damage > 5:
+                        if damage > 5 and self.room.getAlivesCount() > 2:
                             pieces += self.getItemsByAE("WIDE_ATK")
                         self.removeExcessMagic(pieces)
                         return target, pieces

@@ -80,9 +80,9 @@ class TurnHandler:
             
             self.newAttack(player, player, [item], 30)
 
-    def playerBuyResponse(self, player, response, endInning=True):
+    def playerBuyResponse(self, player, response):
         atkData = self.currentAttack
-        print "Buy response: ", self.buyOportunity.id, player, response, endInning
+        print "Buy response: ", self.buyOportunity.id, player, response
         print player == atkData.attacker, self.buyOportunity is not None, atkData.defender.hasItem(self.buyOportunity.id)
         if player == atkData.attacker and self.buyOportunity is not None and atkData.defender.hasItem(self.buyOportunity.id):
             builder = XMLBuilder("BUY")
@@ -96,14 +96,6 @@ class TurnHandler:
                 
             self.room.broadXml(builder)
 
-            if atkData.attacker.disease is not None:
-                if atkData.attacker.diseaseEffect():
-                    builder = XMLBuilder("DISEASE")
-                    self.room.broadXml(builder)
-
-            if endInning:
-                self.room.endInning()
-
     def forceItemBuy(self, seller, target, piece):
         if seller.hasItem(piece.id):
             seller.discardItem(piece.id)
@@ -115,7 +107,7 @@ class TurnHandler:
                 target.mp -= target.yen * -1
                 target.yen = 0
                 if target.mp < 0:
-                    target.hp -= max(0, target.mp * -1)
+                    target.hp = max(0, target.hp - target.mp * -1)
                     target.mp = 0
 
     def canDefendAttr(self, attackAttr, defenseAttr):
@@ -287,6 +279,7 @@ class TurnHandler:
 
         if not atkData.isAction and atkData.defender.dead:
             if atkData.chance == 0 and (len(atkData.piece) == 0 or atkData.piece[0].defenseKind != "COUNTER"):
+                print(str(atkData))
                 assert False, "Dead being attacked!"
             return True
 
@@ -327,10 +320,6 @@ class TurnHandler:
 
         if not missed:
             if atkData.isAction:
-                if atkData.attacker.disease is not None:
-                    if atkData.attacker.diseaseEffect():
-                        builder = XMLBuilder("DISEASE")
-                        self.room.broadXml(builder)
                 return True
             elif atkData.attacker == atkData.defender:
                 return self.defenderCommand(atkData.attacker, [])
@@ -362,7 +351,7 @@ class TurnHandler:
                     atkData.defender.mp -= atkData.defender.yen * -1
                     atkData.defender.yen = 0
                     if atkData.defender.mp < 0:
-                        atkData.defender.hp -= max(0, atkData.defender.mp * -1)
+                        atkData.defender.hp = max(0, atkData.defender.hp - atkData.defender.mp * -1)
                         atkData.defender.mp = 0
             elif item.attackKind == "INCREASE_OR_DECREASE_HP":
                 atkData.defender.hp = max(0, atkData.defender.hp + atkData.decidedHP)
@@ -478,16 +467,13 @@ class TurnHandler:
             if atkData.damage > 0:
                 for item in piece:
                     if item.defenseKind == "COUNTER":
-                        self.newAttack(atkData.defender, atkData.attacker, [item], atkData.damage if item.id in [187, 190, 193, 194] else None, True)
-                        continue
+                        attacker = atkData.defender
+                        defender = atkData.attacker if item.attackKind != "INCREASE_MP" else atkData.defender
+                        self.newAttack(attacker, defender, [item], atkData.damage if item.id in [187, 190, 193, 194] else None, True)
                     
             self.inflictDamage(atkData)
             if atkData.attacker == atkData.defender:
                 print "Self attack, no defense!"
-                if atkData.attacker.disease is not None:
-                    if atkData.attacker.diseaseEffect(True):
-                        builder = XMLBuilder("DISEASE")
-                        self.room.broadXml(builder)
                 return True
             
         builder = XMLBuilder("COMMAND")
@@ -544,15 +530,6 @@ class TurnHandler:
             
         self.room.broadXml(builder)
 
-        if atkData.attacker == self.attacker and atkData.isLast and\
-           atkData.attacker.disease is not None and self.buyOportunity is None and\
-           atkData.attacker.hp != 0:
-            # TODO: I think that this isn't the best position for this code
-            # BUG: This should appear after death, but appears before
-            if atkData.attacker.diseaseEffect():
-                builder = XMLBuilder("DISEASE")
-                self.room.broadXml(builder)
-
         if reflected or blocked or flicked:
             if blocked:
                 return True
@@ -576,6 +553,7 @@ class TurnHandler:
         if self.buyOportunity is None:
             return True
         elif isinstance(atkData.attacker, Bot):
-            self.playerBuyResponse(atkData.attacker, True, False)
+            if atkData.attacker.yen >= self.buyOportunity.price:
+                self.playerBuyResponse(atkData.attacker, True)
             return True
         return False

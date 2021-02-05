@@ -131,6 +131,9 @@ class Session:
         response = "doBuy" in xmldict
         self.room.turn.playerBuyResponse(self.player, response)
 
+        while self.room.endInning():
+            pass
+
     def commandHandler(self, xmldict):
         piece = xmldict.get("piece", [])
         target = xmldict.get("@target")

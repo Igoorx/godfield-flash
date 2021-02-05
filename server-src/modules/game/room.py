@@ -140,8 +140,8 @@ class Room:
         if player not in self.players:
             return
 
-        #TODO: Ver como o server original trata qnd um player sai durante uma partida 1x1
-
+        # TODO: Replace player by a bot if we are in a match
+        
         self.players.remove(player)
         if player in self.attackOrderList:
             self.attackOrderList.remove(player)
@@ -175,19 +175,15 @@ class Room:
         self.inningCount = -1
         self.playing = True
         for player in self.players:
+            player.reset()
             player.dead = False
-            player.deal = 10
-            player.hp = 40
-            player.mp = 10
-            player.yen = 20
-            player.resetItems()
 
         self.attackOrder = -1
 
         builder = XMLBuilder("START_GAME")
         self.broadXml(builder)
 
-        while self.endInning():
+        while self.endInning(self.turn.attacker is not None):
             pass
 
     def getAlivesCount(self):
@@ -290,11 +286,28 @@ class Room:
             self.turn.newAttack(attacker, *attacker.on_turn())
             return True
 
-    def endInning(self):
+    def endInning(self, applyDiseaseEffect = True):
         self.handlePlayersDeath()
 
         if not self.turn.attackQueue.empty():
             return self.turn.doAttack()
+        
+        if applyDiseaseEffect and not self.turn.attacker.dead and self.turn.attacker.disease is not None:
+            gotWorse = False
+            if random.random() * 100 < self.turn.attacker.worseChance:
+                gotWorse = True
+                self.turn.attacker.addHarm(self.turn.attacker.disease)
+            else:
+                self.turn.attacker.worseChance += 1
+
+            if (gotWorse and self.turn.attacker.hp == 0) or self.turn.attacker.diseaseEffect():
+                builder = XMLBuilder("DISEASE")
+                if gotWorse:
+                    builder.worse
+                self.broadXml(builder)
+
+                if self.turn.attacker.hp <= 0:
+                    return self.endInning(False)
 
         print "Round", self.inningCount+1, "ended, starting new round.."
 
