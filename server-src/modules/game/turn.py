@@ -68,6 +68,7 @@ class TurnHandler:
         self.room.broadXml(builder)
 
         if item.attackExtra == "REVIVE":
+            print "REVIVE"
             player.discardItem(item.id)
             player.hp += item.value
         else:
@@ -76,8 +77,7 @@ class TurnHandler:
             builder = XMLBuilder("DIE")
             builder.player.name(player.name)
             self.room.broadXml(builder)
-
-            print "NEW ATTACK"
+            
             self.newAttack(player, player, [item], 30)
 
     def playerBuyResponse(self, player, response, endInning=True):
@@ -96,6 +96,11 @@ class TurnHandler:
                 
             self.room.broadXml(builder)
 
+            if atkData.attacker.disease is not None:
+                if atkData.attacker.diseaseEffect():
+                    builder = XMLBuilder("DISEASE")
+                    self.room.broadXml(builder)
+
             if endInning:
                 self.room.endInning()
 
@@ -113,15 +118,51 @@ class TurnHandler:
                     target.hp -= max(0, target.mp * -1)
                     target.mp = 0
 
+    def canDefendAttr(self, attackAttr, defenseAttr):
+        if not attackAttr or attackAttr == "DARK":
+            return True
+        if not defenseAttr:
+            return attackAttr == "DARK"
+        if attackAttr == "FIRE":
+            return defenseAttr in ["WATER", "LIGHT"]
+        elif attackAttr == "WATER":
+            return defenseAttr in ["FIRE", "LIGHT"]
+        elif attackAttr == "TREE":
+            return defenseAttr in ["SOIL", "LIGHT"]
+        elif attackAttr == "SOIL":
+            return defenseAttr in ["TREE", "LIGHT"]
+        elif attackAttr == "LIGHT":
+            return defenseAttr == "DARK"
+        assert False, "Unknown attribute!"
+
     def newAttack(self, attacker, defender, piece, decidedValue=None, forced=False):
+        # TODO: Divide attack handing in different classes, like CommandChain, AttackCommand, Attribute and etc...
+
         atkData = AttackData()
         atkData.attacker = attacker
         atkData.piece = piece
         atkData.decidedValue = decidedValue
 
         massiveAttack = False
+        isMagicFree = False if len(piece) == 0 else atkData.piece[-1].attackExtra == "MAGIC_FREE"
+        isFirstPiece = True
         
         for item in atkData.piece:
+            if not forced:
+                if isFirstPiece:
+                    isInvalidItem = item.type == "PROTECTOR" or (item.type in ["MAGIC", "SUNDRY"] and not item.attackKind)
+                    print(item.__dict__)
+                    assert not isInvalidItem, "Invalid attack used!"
+                else:
+                    isValidItem = item.attackKind not in ["DO_NOTHING", "DISCARD", "SELL", "EXCHANGE", "MYSTERY"] and\
+                                    ((item.attackExtra in ["INCREASE_ATK", "DOUBLE_ATK", "WIDE_ATK", "ADD_ATTRIBUTE"] and\
+                                      atkData.piece[0].type == "WEAPON" and atkData.piece[0].hitRate == 0) or\
+                                        (item.attackExtra == "MAGIC_FREE" and atkData.piece[-1].type == "MAGIC"))
+                    print(item.__dict__)
+                    assert isValidItem, "Invalid attack used!"
+
+            isFirstPiece = False
+
             if item.attackKind == "DO_NOTHING":
                 atkData.isAction = True
                 attacker.deal += 1
@@ -131,11 +172,25 @@ class TurnHandler:
                 p = list(atkData.piece); p.remove(item)
                 for item in p:
                     attacker.discardItem(item.id)
+                    for player in self.room.players:
+                        if not isinstance(player, Bot):
+                            continue
+                        if player == attacker:
+                            continue
+                        player.notify_item_discard(attacker, item.id)
                 break
             elif not forced:
-                if not attacker.itemUsed(item.id):
-                    print "Failed to use item " + str(item.id)
-                    continue
+                print(atkData.__dict__)
+                magicUsed = False
+                if item.type == "MAGIC":
+                    magicUsed = attacker.magicUsed(item.id, isMagicFree)
+                if not magicUsed:
+                    if attacker.hasMagic(item.id):
+                        assert False, "Failed to use magic " + str(item.id)
+                        continue
+                    if not attacker.itemUsed(item.id, isMagicFree):
+                        assert False, "Failed to use item " + str(item.id)
+                        continue
                 attacker.deal += 1
 
             if item.attackKind == "EXCHANGE":
@@ -164,15 +219,18 @@ class TurnHandler:
                 attack, _ = item.getAD()
 
                 atkData.damage += attack
-                if atkData.attribute is not None and atkData.attribute != item.attribute:
+                if atkData.attribute is not None and atkData.attribute != item.attribute and item.attribute != "LIGHT":
                     atkData.attribute = ""
             elif item.attackExtra == "DOUBLE_ATK":
+                assert len(atkData.piece) > 1, "Tried to use DOUBLE_ATK alone"
                 atkData.damage *= 2
                 if atkData.attribute is not None and atkData.attribute != item.attribute:
                     atkData.attribute = ""
             elif item.attackExtra == "WIDE_ATK":
+                assert len(atkData.piece) > 1, "Tried to use WIDE_ATK alone"
                 massiveAttack = True
                 atkData.chance = 100
+                atkData.attribute = ""
             elif item.attackExtra == "MAGICAL":
                 atkData.damage = atkData.attacker.mp * 2
                 atkData.attacker.mp = 0
@@ -203,7 +261,7 @@ class TurnHandler:
 
                 if atkData.attribute is None or item.attackExtra == "ADD_ATTRIBUTE":  # TODO: Maybe ADD_ATTRIBUTE should be processed after all items.
                     atkData.attribute = item.attribute
-                elif atkData.attribute != item.attribute and not item.type == "MAGIC":
+                elif atkData.attribute != item.attribute and item.attribute != "LIGHT" and item.type != "MAGIC":
                     atkData.attribute = ""
                         
         print "New Attack(M:"+str(massiveAttack)+"):", str(atkData), str(atkData.piece)
@@ -228,8 +286,8 @@ class TurnHandler:
         missed = False if atkData.defender is not None and "DARK_CLOUD" in atkData.defender.harms else 0 < atkData.chance < random.randrange(0, 100 + 1)
 
         if not atkData.isAction and atkData.defender.dead:
-            if not self.attackQueue.empty():
-                return self.doAttack()
+            if atkData.chance == 0 and (len(atkData.piece) == 0 or atkData.piece[0].defenseKind != "COUNTER"):
+                assert False, "Dead being attacked!"
             return True
 
         print "Current Attack:", str(atkData)
@@ -270,23 +328,21 @@ class TurnHandler:
         if not missed:
             if atkData.isAction:
                 if atkData.attacker.disease is not None:
-                    builder = XMLBuilder("DISEASE")
-                    self.room.broadXml(builder)
-                    atkData.attacker.diseaseEffect()
+                    if atkData.attacker.diseaseEffect():
+                        builder = XMLBuilder("DISEASE")
+                        self.room.broadXml(builder)
                 return True
             elif atkData.attacker == atkData.defender:
                 return self.defenderCommand(atkData.attacker, [])
             elif isinstance(atkData.defender, Bot):
                 return self.defenderCommand(atkData.defender, atkData.defender.on_attack())
             return False
-        else:
-            if not self.attackQueue.empty():
-                return self.doAttack()
-            return True
-
-        return False
+        
+        return True
 
     def inflictDamage(self, atkData):
+        hasDamaged = atkData.damage > 0
+
         for item in atkData.piece:
             if item.attackKind == "INCREASE_HP":
                 atkData.defender.hp += item.value
@@ -314,11 +370,13 @@ class TurnHandler:
                 atkData.defender.removeAllHarms()
             elif item.attackKind == "REMOVE_LOWER_HARMS":
                 atkData.defender.removeAllHarms(True)
-            
-        if atkData.damage > 0:
-            if item.isAtkHarm():
+            elif item.attackKind == "ADD_HARM":
                 atkData.defender.addHarm(item.attackExtra)
+            elif hasDamaged:
+                if item.isAtkHarm():
+                    atkData.defender.addHarm(item.attackExtra)
 
+        if hasDamaged:
             if atkData.attribute == "DARK":
                 atkData.defender.hp = 0
             else:
@@ -337,9 +395,10 @@ class TurnHandler:
         print "Used:", str(piece)
         
         self.newAttack(player, target, piece)
-        return self.doAttack()
+        return True
 
     def defenderCommand(self, player, piece):
+        # TODO: Divide defense handing in different classes, like CommandChain, DefenseCommand, Attribute and etc...
         #<COMMAND><piece><item>88</item></piece><commander><name>Igoor</name></commander><target><name>Odin</name></target></COMMAND>""" + chr(0))
         #if not player == self.defender:
         #    print "Tentando defender sem ser defender"
@@ -351,19 +410,35 @@ class TurnHandler:
         reflected = False
         flicked = False
 
+        isMagicFree = False if len(piece) == 0 else piece[-1].attackExtra == "MAGIC_FREE"
+        defenseAttr = None
+
         #Item 227 e aql martelo, e 50% de chance de acertar mas acerta com 100% quem tem o dangerous mortar
 
         print "New Defender Command!"
         print "Used:", str(piece)
 
         for item in piece:
-            if not player.itemUsed(item.id):
-                print "Failed to use item " + str(item.id)
-                continue
-
+            magicUsed = False
+            if item.type == "MAGIC":
+                magicUsed = player.magicUsed(item.id, isMagicFree)
+            if not magicUsed:
+                if player.hasMagic(item.id):
+                    assert False, "Failed to use magic " + str(item.id)
+                    continue
+                if not player.itemUsed(item.id, isMagicFree):
+                    assert False, "Failed to use item " + str(item.id)
+                    continue
             player.deal += 1
+
             if item.id == 195:  # REMOVE_ATTRIBUTE
                 atkData.attribute = ""
+            
+            if defenseAttr is None:
+                defenseAttr = item.attribute
+            elif defenseAttr != item.attribute and item.attribute != "LIGHT":
+                defenseAttr = ""
+
             if (item.defenseExtra == "REFLECT_WEAPON" and atkData.piece[0].type == "WEAPON") or\
                (item.defenseExtra == "REFLECT_MAGIC" and atkData.piece[0].type == "MAGIC") or\
                 item.defenseExtra == "REFLECT_ANY":
@@ -382,12 +457,10 @@ class TurnHandler:
                  (item.defenseExtra == "BLOCK_MAGIC" and atkData.piece[0].type == "MAGIC"):
                 blocked = True
                 break
-
-            if item.isDefHarm():
-                atkData.defender.addHarm(item.defenseExtra)
-                break
-
             if item.defenseKind == "DFS":
+                if item.isDefHarm():
+                    atkData.defender.addHarm(item.defenseExtra)
+                    
                 _, defense = item.getAD()
                 
                 if False:#item.hitRate > 0:
@@ -397,6 +470,11 @@ class TurnHandler:
                     atkData.damage = max(0, atkData.damage - defense)
         
         if not reflected and not flicked and not blocked:
+            # Check if that attack could really be defended
+            if len(piece) > 0:
+                print atkData.attribute, defenseAttr
+                assert self.canDefendAttr(atkData.attribute, defenseAttr), "Invalid defense used!"
+
             if atkData.damage > 0:
                 for item in piece:
                     if item.defenseKind == "COUNTER":
@@ -407,29 +485,55 @@ class TurnHandler:
             if atkData.attacker == atkData.defender:
                 print "Self attack, no defense!"
                 if atkData.attacker.disease is not None:
-                    builder = XMLBuilder("DISEASE")
-                    self.room.broadXml(builder)
-                    atkData.attacker.diseaseEffect()
+                    if atkData.attacker.diseaseEffect(True):
+                        builder = XMLBuilder("DISEASE")
+                        self.room.broadXml(builder)
                 return True
             
         builder = XMLBuilder("COMMAND")
 
-        x = False
+        noResponse = False
         if not reflected:
             for item in atkData.piece:
-                if item.attackKind == "REMOVE_ITEMS":  # Swap away item
+                if item.attackKind == "REMOVE_ITEMS":  # Sweep away 1 item
                     itemId = atkData.defender.getRandomItem()
-                    atkData.defender.discardItem(itemId)
-                    builder.commandChain.piece.item(str(itemId))
-                    x = True
+                    if itemId != 0:
+                        atkData.defender.discardItem(itemId)
+                        builder.commandChain.piece.item(str(itemId))
+                        noResponse = True
+                        for player in self.room.players:
+                            if not isinstance(player, Bot):
+                                continue
+                            if player == atkData.defender or player == atkData.attacker:
+                                continue
+                            player.notify_item_discard(atkData.defender, itemId)
+                elif item.attackKind == "REMOVE_ABILITIES": # Forget 1 miracle
+                    itemId = atkData.defender.getRandomMagic()
+                    if itemId != 0:
+                        atkData.defender.discardMagic(itemId)
+                        builder.commandChain.piece.item(str(itemId))
+                        noResponse = True
+                        for player in self.room.players:
+                            if not isinstance(player, Bot):
+                                continue
+                            if player == atkData.defender or player == atkData.attacker:
+                                continue
+                            player.notify_magic_discard(atkData.defender, itemId)
                 elif item.attackKind == "BUY":
                     self.buyOportunity = self.server.itemManager.getItem(atkData.defender.getRandomItem())
                     builder.commandChain.piece.item(str(self.buyOportunity.id))
-                    x = True
+                    noResponse = True
+
+        for player in self.room.players:
+            if not isinstance(player, Bot):
+                continue
+            if player == atkData.defender or player == atkData.attacker:
+                continue
+            player.notify_attack(atkData, piece, reflected or blocked or flicked)
                 
-        if not x:
+        if not noResponse:
             for item in piece:
-                    builder.piece.item(str(item.id))
+                builder.piece.item(str(item.id))
 
         if reflected or flicked:
             builder.target.name(str(atkData.defender.name))
@@ -441,19 +545,21 @@ class TurnHandler:
         self.room.broadXml(builder)
 
         if atkData.attacker == self.attacker and atkData.isLast and\
-           atkData.attacker.disease is not None:
+           atkData.attacker.disease is not None and self.buyOportunity is None and\
+           atkData.attacker.hp != 0:
             # TODO: I think that this isn't the best position for this code
-            # BUG: This code is activated wrongly during buy operation
-            # BUG: This should appear after dies, but appear before
-            builder = XMLBuilder("DISEASE")
-            self.room.broadXml(builder)
-            atkData.attacker.diseaseEffect()
+            # BUG: This should appear after death, but appears before
+            if atkData.attacker.diseaseEffect():
+                builder = XMLBuilder("DISEASE")
+                self.room.broadXml(builder)
 
         if reflected or blocked or flicked:
-            if not blocked and atkData.attacker == atkData.defender:
-                self.inflictDamage(atkData)
+            if blocked:
                 return True
-            elif blocked:
+            elif atkData.defender.dead:
+                return True
+            elif atkData.attacker == atkData.defender:
+                self.inflictDamage(atkData)
                 return True
             elif isinstance(atkData.defender, Bot):
                 return self.defenderCommand(atkData.defender, atkData.defender.on_attack())

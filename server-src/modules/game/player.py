@@ -8,11 +8,12 @@ class Player:
         self.name = name
         self.team = team
         self.user = user
-        if user:
+
+        if user is not None:
             self.server = user.server
             self.room = user.room
 
-        self.ready = False
+        self.ready = bool()
         self.dead = True
 
         self.hp = 40
@@ -31,24 +32,37 @@ class Player:
     def __str__(self):
         return "<Player {name}>".format(name=self.name)
 
-    def diseaseEffect(self):
-        if self.disease:
-            damage = 0
-            if self.disease == "COLD":
-                damage = 1
-            elif self.disease == "FEVER":
-                damage = 2
-            elif self.disease == "HELL":
-                damage = 5
-            elif self.disease == "HEAVEN":
-                damage = -5
-            self.hp = max(0, min(99, self.hp - damage))
+    def hasLowerDisease(self):
+        return self.disease in ["COLD", "FEVER", "FOG", "GLORY"]
+
+    def diseaseEffect(self, selfAttack = False):
+        if not self.disease or (not selfAttack and self.hp == 0):
+            # Ignore if we aren't diseased or we are already dead
+            assert False, "Invalid call to diseaseEffect"
+            return False
+        
+        damage = 0
+        if self.disease == "COLD":
+            damage = 1
+        elif self.disease == "FEVER":
+            damage = 2
+        elif self.disease == "HELL":
+            damage = 5
+        elif self.disease == "HEAVEN":
+            # TODO: Heaven should kill at some point...
+            damage = -5
+        else:
+            assert False, "Unimplemented disease: " + self.disease
+        
+        self.hp = max(0, min(99, self.hp - damage))
+        return True
 
     def addHarm(self, harm):
         diseases = ["COLD", "FEVER", "HELL", "HEAVEN"]
         if harm in diseases:
             if self.disease:
                 if self.disease == "HEAVEN":
+                    print "FALL FROM THE HEAVEN"
                     self.hp = 0
                 else:
                     idx = diseases.index(self.disease)
@@ -83,7 +97,7 @@ class Player:
 
     def dealItem(self, id, fromBuy=False):
         print self.name + " deal " + str(id)
-        self.items.append(id)
+        self.items.append(int(id))
 
         if not fromBuy and self.user is not None:
             builder = XMLBuilder("DEAL")
@@ -93,28 +107,46 @@ class Player:
     def hasItem(self, id):
         return id in self.items
 
+    def hasAttackKind(self, kind):
+        for id in self.items:
+            item = self.server.itemManager.getItem(id)
+            if item.attackKind == kind:
+                return True
+        return False
+
+    def hasMagic(self, id):
+        return id in self.magics
+
     def getRandomItem(self):
         if len(self.items) == 0:
-            return 0  # TODO: I don't know what is supposed to happen in this situation
+            return 0
 
-        item = None
-        while item is None:
-            item = random.choice(self.items)
-            if item in self.magics:
-                item = None
+        return random.choice(self.items)
 
-        return item
+    def getRandomMagic(self):
+        if len(self.magics) == 0:
+            return 0
+        
+        return random.choice(self.magics)
 
     def discardItem(self, id):
         if self.hasItem(id):
             self.items.remove(id)
             return True
+        assert False, "Tried to discard non-existent item"
         return False
 
-    def itemUsed(self, id):
+    def discardMagic(self, id):
+        if self.hasMagic(id):
+            self.magics.remove(id)
+            return True
+        assert False, "Tried to discard non-existent magic"
+        return False
+
+    def itemUsed(self, id, noMPCost):
         #TODO: Cost mp, etc etc etc
         if not self.hasItem(id):
-            print self.name, "tried to use an item that don't have"
+            assert False, "Tried to use an item that he doesn't have"
             return False
         
         item = self.server.itemManager.getItem(id)
@@ -122,12 +154,33 @@ class Player:
             return True
 
         if item.type == "MAGIC":
-            if self.mp >= item.subValue:
-                self.magics.append(item)
-                self.mp -= item.subValue
+            if noMPCost or self.mp >= item.subValue:
+                # Register and use magic
+                self.magics.append(id)
+                self.items.remove(id)
+                if not noMPCost:
+                    self.mp -= item.subValue
                 return True
             else:
+                print(self.mp)
+                print(item.__dict__)
+                assert False, "Tried to use magic with not enough MP"
                 return False
         
-        self.discardItem(id)
+        self.items.remove(id)
         return True
+
+    def magicUsed(self, id, noMPCost):
+        #TODO: Cost mp, etc etc etc
+        if not self.hasMagic(id):
+            return False
+        
+        item = self.server.itemManager.getItem(id)
+
+        if noMPCost or self.mp >= item.subValue:
+            if not noMPCost:
+                self.mp -= item.subValue
+            return True
+        
+        assert False, "Tried to use magic with not enough MP"
+        return False

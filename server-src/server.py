@@ -34,14 +34,16 @@ class Server(protocol.ServerFactory):
             if user.state == "LOBBY":
                 user.sendXml(xml)
 
-    def gotoLobby(self, user):
+    def buildLobbyXml(self):
         builder = XMLBuilder("ENTER")
         builder.lobby  # <lobby />
+
         for user_ in self.users:
             bUser = builder.user
             bUser.name(user_.name)
             if user_.room is not None:
                 bUser.roomID(str(user_.room.id))
+        
         for room in self.rooms.values():
             bRoom = builder.room
             bRoom.name(room.name)
@@ -60,19 +62,31 @@ class Server(protocol.ServerFactory):
                 if player.dead and room.playing:
                     bPlayer.isDead  # <isDead />
 
-        user.sendXml(builder)
+        return builder
 
-        user.state = "LOBBY"
+    def addUser(self, user):
+        self.users.append(user)
+
+        builder = XMLBuilder("ADD_USER")
+        builder.user.name(user.name)
+        self.lobbyBroadXml(builder)
+
+    def removeUser(self, user):
+        self.users.remove(user)
+
+        builder = XMLBuilder("REMOVE_USER")
+        builder.user.name(user.name)
+        self.lobbyBroadXml(builder)
 
     def createRoom(self, name):
         room = Room(self, name)
 
-#        for i in range(50):
-#            b = Bot(''.join(__import__("random").choice(__import__("string").ascii_uppercase + __import__("string").digits) for _ in range(12)), "SINGLE")
-#            b.server = self
-#            room.players.append(b)
-#            b.room = room
-#            b.ready = True
+        #for i in range(4):
+        #    b = Bot(''.join(__import__("random").choice(__import__("string").ascii_uppercase + __import__("string").digits) for _ in range(12)), "SINGLE")
+        #    b.server = self
+        #    room.players.append(b)
+        #    b.room = room
+        #    b.ready = True
 
         self.lastRoomId += 1
         self.rooms[self.lastRoomId] = room

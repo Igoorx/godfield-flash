@@ -22,6 +22,10 @@ This server emulator is not nearly perfect, but it works! (as shown in the gif b
 ## Requirements
 To run the emulator, you need <b>Python 2.7</b>, you can install all dependencies using the `requirements.txt`. Do not know how? [Click here to see more about the requirements file.](https://pip.pypa.io/en/stable/user_guide/#id12)
 
+## Flash is dead! Now what?
+The version of GodField in this repository is written using Flash, however flash isn't supported by most browsers anymore, but it is still possible to run GodField if you use some browser that still has support for it or if you run the game's swf directly via Flash Projector.
+[You can download the Flash Projector here](https://fpdownload.macromedia.com/pub/flashplayer/updaters/32/flashplayer_32_sa.exe)
+
 ## Quick set-up
 To get into the game, you need a webserver running in port 80 with both `static.godfield.net` and `www.godfield.net` folder contents, if you need help to set-up a webserver or do not even knows what it is, [click here, this surely will help you](https://stackoverflow.com/questions/45584453/how-to-create-a-simple-http-webserver-in-python). (Take sure to change the PORT to 80)
 Remember too to run the server emulator!
@@ -30,7 +34,8 @@ After, you need to add these lines to your hosts file:
 127.0.0.1 www.godfield.net
 127.0.0.1 freefight.godfield.net
 ```
-With that, just open the link `http://www.godfield.net/en.html` in a browser that supports flash (like Internet Explorer).
+With that, just open the link `http://www.godfield.net/en.html` in a browser that still supports Flash.
+Alternatively you can open the [Flash Projector](https://fpdownload.macromedia.com/pub/flashplayer/updaters/32/flashplayer_32_sa.exe) and press CTRL+O, a window should appear, in this window you just have to input `http://www.godfield.net/game/godfield.swf` in the `Location` text field and press the button `OK`.
 
 ## Remarks
 - I only did the server (and also a PT translation of the game), all rights about the client files go to [@guuji](https://twitter.com/guuji).
