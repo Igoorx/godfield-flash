@@ -1,7 +1,6 @@
 from twisted.internet import reactor, protocol
 
 from modules.game.user import User
-from modules.game.bot import Bot
 from modules.game.room import Room
 from modules.itemManager import ItemManager
 from helpers.xmlbuilder import XMLBuilder
@@ -80,13 +79,6 @@ class Server(protocol.ServerFactory):
 
     def createRoom(self, name):
         room = Room(self, name)
-
-        #for i in range(4):
-        #    b = Bot(''.join(__import__("random").choice(__import__("string").ascii_uppercase + __import__("string").digits) for _ in range(12)), "SINGLE")
-        #    b.server = self
-        #    room.players.append(b)
-        #    b.room = room
-        #    b.ready = True
 
         self.lastRoomId += 1
         self.rooms[self.lastRoomId] = room

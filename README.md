@@ -7,8 +7,8 @@ This do not mean that this project is abandoned, I still want to update this ser
 ## Known issues
 This server emulator is not nearly perfect, but it works! (as shown in the gif below), but here is some issues that I can remember at the moment:
 - Sometimes the match can just stop with the server receiving a ERROR packet.
-- It is very easy to the client-side match desync with the server-side match.
-- The artifacts distribution is not how it should be.
+- It is common for the client-side match desynchronize with the server-side match.
+- The artifacts distribution is not how it should be (needs research).
 - Bots are not very smart, they just thrown the artifacts that he can use at the moment. (And was programmed to)
 - Bots completely ignore harms effects.
 - Bots are not replacing a disconnected player because they are not very reliable.

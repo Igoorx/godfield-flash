@@ -23,7 +23,10 @@ class Player:
 
     def reset(self):
         self.ready = bool()
-        self.dead = True
+        self.dead = False
+        self.lost = False
+        self.finished = False
+        self.waitingAttackTurn = False
 
         self.hp = 40
         self.mp = 10

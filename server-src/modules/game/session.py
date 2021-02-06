@@ -1,3 +1,7 @@
+from modules.game.bot import Bot
+from helpers.xmlbuilder import XMLBuilder
+
+
 class Session:
     def __init__(self, user,  xmldict):
         self.name = xmldict["name"]
@@ -75,7 +79,7 @@ class Session:
 
         if room is not None:
             self.room = room
-            self.room.addUser(self)
+            self.room.addUser(self, roomName is not None)
 
     def exitHandler(self, xmldict):
         self.room.removeUser(self)
@@ -111,6 +115,33 @@ class Session:
             self.sendXml(builder)
         elif comment.startswith("fnd") and len(args) > 0:
             self.room.forceNextDeal = int(args[0])
+        elif comment.startswith("newbot") and not self.room.playing:
+            count = int(args[0]) if len(args) > 0 else 1
+            team = args[1].upper() if len(args) > 1 else "SINGLE"
+            for i in range(count):
+                b = Bot(''.join(__import__("random").choice(__import__("string").ascii_uppercase + __import__("string").digits) for _ in range(12)), team)
+                b.server = self.server
+                self.room.players.append(b)
+                b.room = self.room
+                b.ready = True
+
+                # TODO: Move this to room class
+                builder = XMLBuilder("ADD_PLAYER")
+                bPlayer = builder.player
+                bPlayer.name(b.name)
+                bPlayer.team(b.team)
+                self.room.broadXml(builder)
+
+                # Set as ready (It needs to be a separate xml)
+                builder = XMLBuilder("ADD_PLAYER")
+                bPlayer = builder.player
+                bPlayer.name(b.name)
+                bPlayer.isReady
+                self.room.broadXml(builder)
+
+                # Broadcast to Lobby
+                builder.roomID(str(self.room.id))
+                self.server.lobbyBroadXml(builder)
             
         self.room.sendChat(self.name, comment)
 

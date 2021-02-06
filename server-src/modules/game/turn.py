@@ -12,6 +12,8 @@ class AttackData:
         
         self.isAction = bool()
         self.isLast = bool()
+        self.isCounter = bool()
+        self.isRetargeted = bool()
         
         self.damage = int()
         self.chance = int()
@@ -34,6 +36,8 @@ class AttackData:
 
         copy.isAction = self.isAction
         copy.isLast = self.isLast
+        copy.isCounter = self.isCounter
+        copy.isRetargeted = self.isRetargeted
         
         copy.damage = self.damage
         copy.chance = self.chance
@@ -127,13 +131,14 @@ class TurnHandler:
             return defenseAttr == "DARK"
         assert False, "Unknown attribute!"
 
-    def newAttack(self, attacker, defender, piece, decidedValue=None, forced=False):
+    def newAttack(self, attacker, defender, piece, decidedValue=None, forced=False, counter=False):
         # TODO: Divide attack handing in different classes, like CommandChain, AttackCommand, Attribute and etc...
 
         atkData = AttackData()
         atkData.attacker = attacker
         atkData.piece = piece
         atkData.decidedValue = decidedValue
+        atkData.isCounter = counter
 
         massiveAttack = False
         isMagicFree = False if len(piece) == 0 else atkData.piece[-1].attackExtra == "MAGIC_FREE"
@@ -433,6 +438,7 @@ class TurnHandler:
                 item.defenseExtra == "REFLECT_ANY":
                 reflected = True
                 self.currentAttack.attacker, self.currentAttack.defender = self.currentAttack.defender, self.currentAttack.attacker
+                self.currentAttack.isRetargeted = True
                 atkData = self.currentAttack.copy()
                 break
             elif (item.defenseExtra == "FLICK_WEAPON" and atkData.piece[0].type == "WEAPON") or\
@@ -440,6 +446,7 @@ class TurnHandler:
                 flicked = True
                 self.currentAttack.attacker = self.currentAttack.defender
                 self.currentAttack.defender = random.choice([player for player in self.room.players if not player.dead])
+                self.currentAttack.isRetargeted = True
                 atkData = self.currentAttack.copy()
                 break
             elif (item.defenseExtra == "BLOCK_WEAPON" and atkData.piece[0].type == "WEAPON") or\
@@ -469,7 +476,7 @@ class TurnHandler:
                     if item.defenseKind == "COUNTER":
                         attacker = atkData.defender
                         defender = atkData.attacker if item.attackKind != "INCREASE_MP" else atkData.defender
-                        self.newAttack(attacker, defender, [item], atkData.damage if item.id in [187, 190, 193, 194] else None, True)
+                        self.newAttack(attacker, defender, [item], atkData.damage if item.id in [187, 190, 193, 194] else None, True, True)
                     
             self.inflictDamage(atkData)
             if atkData.attacker == atkData.defender:

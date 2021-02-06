@@ -47,7 +47,7 @@ class Room:
         builder.comment(msg)
         self.broadXml(builder)
 
-    def addUser(self, user):
+    def addUser(self, user, roomCreate = False):
         builder = XMLBuilder("ENTER")
         
         bRoom = builder.room
@@ -61,6 +61,10 @@ class Room:
         
         bGame = bRoom.game  # <game />
         if len(self.players) > 0:
+            if self.playing:
+                bGame.inningCount(str(self.inningCount + 1))
+            if self.ended:
+                bGame.isEnded
             bPlayers = bGame.players
             for player in self.players:
                 bPlayer = bPlayers.player
@@ -68,12 +72,44 @@ class Room:
                 bPlayer.team(player.team)
                 if player.ready:
                     bPlayer.isReady  # <isReady />
-                if self.playing and player.dead:
+                if player.dead:
                     bPlayer.isDead  # <isDead />
+                if player.lost:
+                    bPlayer.isLost
+                if player.finished:
+                    bPlayer.isFinished
+                if player.waitingAttackTurn:
+                    bPlayer.isWaitingAttackTurn
                 bPlayer.power(key="HP")(str(player.hp))
                 bPlayer.power(key="MP")(str(player.mp))
                 bPlayer.power(key="YEN")(str(player.yen))
-        
+                if player.disease is not None:
+                    bPlayer.disease(player.disease)
+                for harm in player.harms:
+                    bPlayer.harm(harm)
+                # TODO: Assistant
+        # TODO: privatePlayer (regain control after disconnect)
+        if self.playing:
+            bAttacker = bGame.attacker
+            if self.turn.currentAttack is None:
+                bAttacker.name(str(self.turn.attacker.name))
+            else:
+                atkData = self.turn.currentAttack
+
+                # TODO: retargeted attacks appears as normal attacks... idk if there's any way to fix this
+                bAttacker.name(str(atkData.attacker.name))
+                bCommand = bGame.COMMAND
+                for item in atkData.piece:
+                    pp = bCommand.piece
+                    pp.item(str(item.id))
+                    if item.attackExtra == "MAGICAL":
+                        pp.costMP(str(atkData.damage / 2))
+                if atkData.decidedValue is not None:
+                    bCommand.decidedValue(str(atkData.decidedValue))
+                bCommand.commander.name(atkData.attacker.name)
+                if not atkData.isAction:
+                    bCommand.target.name(atkData.defender.name)
+
         user.sendXml(builder)
 
         user.state = "ROOM"
@@ -84,14 +120,17 @@ class Room:
         self.broadXml(builder)
 
         # For Broadcasting to Lobby
-        bRoom = builder.room
-        bRoom.name(self.name)
-        bRoom.id(str(self.id))
-        bRoom.language(self.language)
-        bRoom.playersLimit(str(self.playersLimit))
-        if self.fast:
-            bRoom.isFast(str(self.fast))
-        bRoom.time(str(self.time))
+        if roomCreate:
+            bRoom = builder.room
+            bRoom.name(self.name)
+            bRoom.id(str(self.id))
+            bRoom.language(self.language)
+            bRoom.playersLimit(str(self.playersLimit))
+            if self.fast:
+                bRoom.isFast(str(self.fast))
+            bRoom.time(str(self.time))
+        else:
+            builder.roomID(str(self.id))
 
         self.server.lobbyBroadXml(builder)
 
@@ -124,6 +163,8 @@ class Room:
         else:
             player.team = team
 
+        print "Add player:", user.name + "@" + team
+
         builder = XMLBuilder("ADD_PLAYER")
         bPlayer = builder.player
         bPlayer.name(player.name)
@@ -139,6 +180,8 @@ class Room:
     def exitGame(self, player):
         if player not in self.players:
             return
+
+        print "Remove player:", player.name
 
         # TODO: Replace player by a bot if we are in a match
         
@@ -176,12 +219,16 @@ class Room:
         self.playing = True
         for player in self.players:
             player.reset()
-            player.dead = False
+            player.ready = True
 
         self.attackOrder = -1
 
         builder = XMLBuilder("START_GAME")
         self.broadXml(builder)
+        
+        builder.roomID(str(self.id))
+        builder.time(str(self.time))
+        self.server.lobbyBroadXml(builder)
 
         while self.endInning(self.turn.attacker is not None):
             pass
@@ -215,10 +262,16 @@ class Room:
                 self.turn.playerDyingAttack(player, self.server.itemManager.getItem(117))
             else:
                 player.dead = True
+                if player.team == "SINGLE":
+                    player.lost = True
 
                 builder = XMLBuilder("DIE")
                 builder.player.name(player.name)
                 self.broadXml(builder)
+        
+                builder.roomID(str(self.id))
+                self.server.lobbyBroadXml(builder)
+                
 
     def doPlayersDeals(self):
         for player in self.players:
@@ -256,6 +309,9 @@ class Room:
     def resetAttackOrder(self):
         self.attackOrderList = list(self.players)
         random.shuffle(self.attackOrderList)
+
+        for player in self.players:
+            player.waitingAttackTurn = True
         
         builder = XMLBuilder("RESET_ATTACK_ORDER")
         self.broadXml(builder)
@@ -275,6 +331,7 @@ class Room:
     def startInning(self, attacker):
         self.turn.new()
         self.turn.attacker = attacker
+        self.turn.attacker.waitingAttackTurn = False
 
         self.inningCount += 1
         
