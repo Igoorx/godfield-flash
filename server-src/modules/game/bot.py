@@ -20,6 +20,8 @@ class Bot(Player):
         for player in self.room.players:
             if player == self:
                 continue
+            if player.team != "SINGLE" and player.team == self.team:
+                continue
 
             if player.dead:
                 if player in self.possiblyDefenceless:
@@ -257,7 +259,7 @@ class Bot(Player):
 
         target = None
         if len(self.possiblyDefenceless) == 0:
-            target = random.choice([player for player in self.room.players if not player.dead and player != self])
+            target = random.choice([player for player in self.room.players if not player.dead and player != self and (player.team == "SINGLE" or player.team != self.team)])
         else:
             print "Bot targetting possibly defenceless player."
             target = random.choice(self.possiblyDefenceless)

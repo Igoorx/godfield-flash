@@ -118,6 +118,8 @@ class Session:
         elif comment.startswith("newbot") and not self.room.playing:
             count = int(args[0]) if len(args) > 0 else 1
             team = args[1].upper() if len(args) > 1 else "SINGLE"
+            if len(self.room.players) == 0: # TODO: Move this to room class
+                self.room.teamPlay = team != "SINGLE"
             for i in range(count):
                 b = Bot(''.join(__import__("random").choice(__import__("string").ascii_uppercase + __import__("string").digits) for _ in range(12)), team)
                 b.server = self.server

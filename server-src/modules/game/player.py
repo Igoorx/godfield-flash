@@ -96,6 +96,7 @@ class Player:
             self.disease = None
             self.worseChance = 0
         if "FOG" in self.harms:
+            # TODO: Properly implement UNFOG
             self.harms.remove("FOG")
         if "GLORY" in self.harms:
             self.harms.remove("GLORY")

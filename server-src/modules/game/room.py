@@ -24,6 +24,8 @@ class Room:
         self.attackOrder = -1
         self.ended = bool()
 
+        self.teamPlay = bool()
+
         self.turn = TurnHandler(self)
 
         self.forceNextDeal = None
@@ -156,6 +158,11 @@ class Room:
 
     def enterGame(self, user, team):
         player = self.getPlayer(user.name)
+        
+        if len(self.players) == 0:
+            self.teamPlay = team != "SINGLE"
+        else:
+            assert self.teamPlay == (team != "SINGLE"), "Player tried to choose an impossible team"
 
         if player is None:
             player = Player(user, user.name, team)
@@ -217,6 +224,7 @@ class Room:
         
         self.inningCount = -1
         self.playing = True
+        self.ended = False
         for player in self.players:
             player.reset()
             player.ready = True
@@ -240,10 +248,32 @@ class Room:
                 count += 1
         return count
 
+    def getEnemiesAliveCount(self, team):
+        count = 0
+        for player in self.players:
+            if not player.dead and player.team != team:
+                count += 1
+        return count
+
+    def getAliveTeams(self):
+        aliveTeams = []
+        for player in self.players:
+            if not player.dead and player.team not in aliveTeams:
+                aliveTeams.append(player.team)
+        return aliveTeams
+
+    def getTeamsAliveCount(self):
+        return len(self.getAliveTeams())
+
     def checkEndGame(self):
-        if self.getAlivesCount() <= 1:
+        if self.teamPlay:
+            if self.getTeamsAliveCount() <= 1:
+                self.ended = True
+
+        elif self.getAlivesCount() <= 1:
             self.ended = True
 
+        if self.ended:
             builder = XMLBuilder("END_GAME")
             self.broadXml(builder)
 
@@ -264,6 +294,10 @@ class Room:
                 player.dead = True
                 if player.team == "SINGLE":
                     player.lost = True
+                elif player.team not in self.getAliveTeams():
+                    for _player in self.players:
+                        if _player.team == player.team:
+                            _player.lost = True
 
                 builder = XMLBuilder("DIE")
                 builder.player.name(player.name)

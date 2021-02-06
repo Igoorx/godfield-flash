@@ -265,10 +265,15 @@ class TurnHandler:
             
         if massiveAttack:
             for player in self.room.players:
-                if player != attacker and not player.dead:
-                    _atkData = atkData.copy()
-                    _atkData.defender = player
-                    self.attackQueue.put(_atkData)
+                if player == attacker:
+                    continue
+                if player.dead:
+                    continue
+                if player.team != "SINGLE" and player.team == attacker.team:
+                    continue
+                _atkData = atkData.copy()
+                _atkData.defender = player
+                self.attackQueue.put(_atkData)
             _atkData.isLast = True
         else:
             atkData.defender = defender if not atkData.isAction else None
