@@ -190,18 +190,38 @@ class Room:
 
         print "Remove player:", player.name
 
-        # TODO: Replace player by a bot if we are in a match
-        
-        self.players.remove(player)
-        if player in self.attackOrderList:
-            self.attackOrderList.remove(player)
+        if self.playing:
+            bot = Bot(player.name, player.team)
+            bot.server = self.server
+            bot.room = self
+            bot.setFromPlayer(player)
+            self.players[self.players.index(player)] = bot
+            if player in self.attackOrderList:
+                self.attackOrderList[self.attackOrderList.index(player)] = bot
 
-        builder = XMLBuilder("REMOVE_PLAYER")
-        builder.player.name(player.name)
-        self.broadXml(builder)
+            endInning = None
+            atkData = self.turn.currentAttack
+            if atkData is None:
+                if self.turn.attacker == player:
+                    self.turn.attacker = bot
+                    self.turn.newAttack(bot, *bot.on_turn())
+                    endInning = True
+            elif atkData.defender == player:
+                atkData.defender = bot
+                endInning = self.turn.defenderCommand(bot, bot.on_attack())
+            
+            if endInning is not None:
+                while endInning:
+                    endInning = self.endInning()
+        else:
+            self.players.remove(player)
 
-        builder.roomID(str(self.id))
-        self.server.lobbyBroadXml(builder)
+            builder = XMLBuilder("REMOVE_PLAYER")
+            builder.player.name(player.name)
+            self.broadXml(builder)
+
+            builder.roomID(str(self.id))
+            self.server.lobbyBroadXml(builder)
 
     def playerReady(self, playerName):
         builder = XMLBuilder("ADD_PLAYER")
@@ -312,7 +332,7 @@ class Room:
             print player.name, "HP:", player.hp, "MP:", player.mp, "YEN:", player.yen, "ITEMS:", len(player.items)
             if player.deal > 0 and not player.dead:
                 if player.deal == 10:
-                    items = self.server.itemManager.getProbRandomItems(10)  # 10
+                    items = self.server.itemManager.getProbRandomItems(7)  # 10
                     for item in items:
                         player.dealItem(item.id)
                 #    player.dealItem(220)
@@ -325,9 +345,13 @@ class Room:
                 #    #player.dealItem(39)
                 #    player.dealItem(63)
                 #    player.dealItem(233)
+                #    player.dealItem(234)  # Heaven Herb
                 #    player.dealItem(242)
                 #    player.dealItem(244) #212 = Arco da morte, 244 = Reviver
                 #    player.dealItem(191) #194 = Take Yen, 188 = FOG, 191 = Glory ring
+                    player.dealItem(3)
+                    player.dealItem(2)
+                    player.dealItem(2)
                 else:
                     if self.forceNextDeal is None:
                         items = self.server.itemManager.getProbRandomItems(player.deal)
@@ -363,6 +387,8 @@ class Room:
         return self.startInning(next)
 
     def startInning(self, attacker):
+        assert(attacker in self.players)
+
         self.turn.new()
         self.turn.attacker = attacker
         self.turn.attacker.waitingAttackTurn = False

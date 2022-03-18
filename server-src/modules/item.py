@@ -4,6 +4,7 @@ class Item:
     def __init__(self):
         #self.assistantType = str()
         self.id = int()
+
         self.type = str()
         self.attackKind = str()
         self.attackExtra = str()
@@ -44,19 +45,23 @@ class Item:
 
         # print(repr(self))
 
-    def getAD(self):
-        attack = 0
-        defense = 0
-        
-        if self.attackKind == "ATK" and self.defenseKind == "DFS":
-            attack = self.value
-            defense = self.subValue
-        elif self.attackKind == "ATK" and not self.defenseKind:
-            attack = self.value
-        elif not self.attackKind and self.defenseKind == "DFS":
-            defense = self.value
-        else:
-            print "WARNING: Unknown item AD!?"
-            print repr(self)
+    def getAtk(self):
+        if self.attackKind == "ATK":
+            return self.value
+        if self.attackExtra == "INCREASE_ATK" or self.attackExtra == "ADD_ATTRIBUTE":
+            if self.type == "WEAPON" or self.type == "MAGIC":
+                return self.value
+            elif self.type == "PROTECTOR" or self.type == "SUNDRY":
+                return self.subValue
+        return 0
 
-        return [attack, defense]
+    def getDef(self):
+        if self.defenseKind == "DFS":
+            if self.type == "WEAPON":
+                return self.subValue
+            elif self.type == "PROTECTOR":
+                return self.value
+        return 0
+
+    def getAD(self):
+        return [self.getAtk(), self.getDef()]

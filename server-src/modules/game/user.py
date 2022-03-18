@@ -51,7 +51,7 @@ class User(protocol.Protocol):
         xmldict = xmldict.values()[0] if xmldict.values()[0] != None else dict()
 
         #print repr(xml)
-        #print "RECV ("+self.session.name+"):", request, xmldict
+        print "RECV ("+(self.session.name if self.session else "?")+"):", request, xmldict
 
         #<player><name>Igoor</name><team>SINGLE</team><isReady/><power key="HP">90</power><power key="MP">90</power><power key="YEN">90</power></player><player><name>Sinbad</name><team>SINGLE</team><isReady/><power key="HP">40</power><power key="MP">10</power><power key="YEN">20</power></player><player><name>Santa Claus</name><team>SINGLE</team><isReady/><power key="HP">40</power><power key="MP">10</power><power key="YEN">20</power></player><player><name>Odin</name><team>SINGLE</team><isReady/><power key="HP">40</power><power key="MP">10</power><power key="YEN">20</power></player></players><privatePlayer/></game></room></ENTER>""" + chr(0))
 

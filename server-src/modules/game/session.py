@@ -3,28 +3,29 @@ from helpers.xmlbuilder import XMLBuilder
 
 
 class Session:
+    def makeRegisterHandler():
+        handlers = dict()
+        def registerHandler(req):
+            def decorator(func):
+                handlers[req] = func
+                return func
+            return decorator
+        registerHandler.all = handlers
+        return registerHandler
+
+    registerHandler = makeRegisterHandler()
+
     def __init__(self, user,  xmldict):
         self.name = xmldict["name"]
         self.ipAddress = xmldict["ipAddress"] if "ipAddress" in xmldict else ""
         self.language = xmldict["language"]
         self.oneTimeID = xmldict["oneTimeID"]
         self.state = "UNKNOWN"
-        self.handlers = dict()
 
         self.user = user
         self.server = user.server
         self.room = None
         self.player = None
-
-    def registerHandlers(self):
-        self.handlers["ENTER"] = self.enterHandler
-        self.handlers["EXIT"] = self.exitHandler
-        self.handlers["CHAT"] = self.chatHandler
-        self.handlers["ENTER_GAME"] = self.enterGameHandler
-        self.handlers["EXIT_GAME"] = self.exitGameHandler
-        self.handlers["READY"] = self.readyHandler
-        self.handlers["BUY"] = self.buyHandler
-        self.handlers["COMMAND"] = self.commandHandler
 
     def sendXml(self, xml):
         self.user.sendXml(xml)
@@ -45,8 +46,6 @@ class Session:
             self.room = None
 
     def onLogin(self):
-        self.registerHandlers()
-
         if self.server.mode == "FREEFIGHT":
             self.gotoLobby()
             self.server.addUser(self)
@@ -58,11 +57,12 @@ class Session:
     def onRequest(self, request, xmldict):
         if request != "ENTER" and self.room is None:
             return
-
-        handler = self.handlers.get(request)
+        
+        handler = Session.registerHandler.all.get(request)
         if handler is not None:
-            handler(xmldict)
-            
+            handler(self, xmldict)
+    
+    @registerHandler("ENTER")
     def enterHandler(self, xmldict):
         roomName = xmldict.get("name")
         roomId = xmldict.get("id")
@@ -81,6 +81,7 @@ class Session:
             self.room = room
             self.room.addUser(self, roomName is not None)
 
+    @registerHandler("EXIT")
     def exitHandler(self, xmldict):
         self.room.removeUser(self)
         if self.player is not None:
@@ -91,6 +92,7 @@ class Session:
 
         self.gotoLobby()
 
+    @registerHandler("CHAT")
     def chatHandler(self, xmldict):
         comment = xmldict.get("comment")
         if comment is None or len(comment.strip()) == 0:
@@ -100,6 +102,9 @@ class Session:
 
         if comment == "go":
             self.room.startGame()
+        elif comment == "test_go":
+            for i in range(100):
+                self.room.startGame()
         elif comment == "die":
             self.player.hp = 0
         elif comment.startswith("kill"):
@@ -147,19 +152,23 @@ class Session:
             
         self.room.sendChat(self.name, comment)
 
+    @registerHandler("ENTER_GAME")
     def enterGameHandler(self, xmldict):
         team = xmldict.get("team")
         if team is not None:
             self.player = self.room.enterGame(self, team)
 
+    @registerHandler("EXIT_GAME")
     def exitGameHandler(self, xmldict):
         self.room.exitGame(self.player)
         self.player = None
 
+    @registerHandler("READY")
     def readyHandler(self, xmldict):
         self.player.ready = "isReady" in xmldict
         self.room.playerReady(self.player.name)
 
+    @registerHandler("BUY")
     def buyHandler(self, xmldict):
         response = "doBuy" in xmldict
         self.room.turn.playerBuyResponse(self.player, response)
@@ -167,9 +176,11 @@ class Session:
         while self.room.endInning():
             pass
 
+    @registerHandler("COMMAND")
     def commandHandler(self, xmldict):
         piece = xmldict.get("piece", [])
         target = xmldict.get("@target")
+        power = xmldict.get("power", None)
 
         if type(piece) is not list:
             piece = [piece]
@@ -178,9 +189,17 @@ class Session:
 
         # Convert ids to instances
         piece = map(lambda x: self.server.itemManager.getItem(int(x.values()[0])), piece)
+        
+        decidedExchange = None
+        if power is not None:
+            decidedExchange = dict()
+            for kv in power:
+                key = kv.get("@key")
+                value = int(kv.get("#text"))
+                decidedExchange[key] = value
 
         if target is not None:
-            endInning = self.room.turn.attackerCommand(self.player, piece, self.room.getPlayer(target))
+            endInning = self.room.turn.attackerCommand(self.player, piece, self.room.getPlayer(target), decidedExchange)
         else:
             endInning = self.room.turn.defenderCommand(self.player, piece)
 

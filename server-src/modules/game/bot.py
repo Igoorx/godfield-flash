@@ -51,8 +51,7 @@ class Bot(Player):
 
             stats.lastHP = player.hp
 
-        print(self.enemyStats)
-            
+        print "Enemy Stats:", self.enemyStats
 
     def getItemByAK(self, kind):
         for id in self.items:
@@ -92,7 +91,7 @@ class Bot(Player):
             if item.attackExtra == "DOUBLE_ATK":
                 damage *= 2
             else:
-                damage += item.getAD()[0]
+                damage += item.getAtk()
         return damage
 
     def getDefenseItems(self, forAttribute):
@@ -265,8 +264,8 @@ class Bot(Player):
             target = random.choice(self.possiblyDefenceless)
         print "Bot target:", target
         
-        random.shuffle(self.items)
-        random.shuffle(self.magics)
+        random.shuffle(self.items) # TODO: don't do this in this way, maybe use a random access iterator or do a copy or smth
+        random.shuffle(self.magics) # TODO: don't do this in this way, maybe use a random access iterator or do a copy or smth
         pieces = []
         lastResortAttack = None
 
@@ -375,6 +374,9 @@ class Bot(Player):
                     if self.yen < 10:
                         continue
                     return target, [item]
+                elif item.attackKind == "EXCHANGE":
+                    # TODO: NOT IMPLEMENTED
+                    continue
 
             if item.type == "WEAPON":
                 if item.attackKind == "ATK":
@@ -500,7 +502,7 @@ class Bot(Player):
         ret = []
 
         damage, attr = self.room.turn.currentAttack.damage, self.room.turn.currentAttack.attribute
-        print damage, attr
+        print "Damage:", damage, "| Attr:", attr
 
         if damage <= 0:
             # TODO: Try to reflect, flick or block
@@ -539,9 +541,8 @@ class Bot(Player):
         defPiece = []
         if attr is not None:
             for p in protectors:
-                a, d = p.getAD()
                 defPiece.append(p)
-                damage -= d
+                damage -= p.getDef()
 
                 if damage <= 0:
                     break

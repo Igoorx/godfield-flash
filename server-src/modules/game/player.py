@@ -21,6 +21,26 @@ class Player:
     def hasLowerDisease(self):
         return self.disease in ["COLD", "FEVER", "FOG", "GLORY"]
 
+    def setFromPlayer(self, otherPlayer):
+        self.ready = otherPlayer.ready
+        self.dead = otherPlayer.dead
+        self.lost = otherPlayer.lost
+        self.finished = otherPlayer.finished
+        self.waitingAttackTurn = otherPlayer.waitingAttackTurn
+
+        self.hp = otherPlayer.hp
+        self.mp = otherPlayer.mp
+        self.yen = otherPlayer.yen
+
+        self.disease = otherPlayer.disease
+        self.worseChance = otherPlayer.worseChance
+        self.harms = otherPlayer.harms
+
+        self.deal = otherPlayer.deal
+
+        self.magics = otherPlayer.magics
+        self.items = otherPlayer.items
+
     def reset(self):
         self.ready = bool()
         self.dead = False
@@ -136,22 +156,28 @@ class Player:
         return random.choice(self.magics)
 
     def discardItem(self, id):
-        if self.hasItem(id):
-            self.items.remove(id)
-            return True
-        assert False, "Tried to discard non-existent item"
-        return False
+        if not self.hasItem(id):
+            assert False, "Tried to discard non-existent item"
+            return False
+        
+        print self.name + " discard " + str(id)
+        self.items.remove(id)
+        return True
+        
 
     def discardMagic(self, id):
-        if self.hasMagic(id):
-            self.magics.remove(id)
-            return True
-        assert False, "Tried to discard non-existent magic"
-        return False
+        if not self.hasMagic(id):
+            assert False, "Tried to discard non-existent magic"
+            return False
+        
+        self.magics.remove(id)
+        return True
+        
 
     def itemUsed(self, id, noMPCost):
         #TODO: Cost mp, etc etc etc
         if not self.hasItem(id):
+            print self.items
             assert False, "Tried to use an item that he doesn't have"
             return False
         
