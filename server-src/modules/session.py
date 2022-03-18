@@ -2,10 +2,10 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Optional
 if TYPE_CHECKING:
     from server import Server
-    from modules.game.user import User
-    from modules.game.room import Room
-from modules.game.player import Player
-from modules.game.bot import Bot
+    from modules.user import User
+    from modules.room import Room
+from modules.player import Player
+from modules.bot import Bot
 from helpers.xmlbuilder import XMLBuilder
 
 import random

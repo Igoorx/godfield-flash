@@ -9,7 +9,7 @@ This do not mean that this project is abandoned, I still want to update this ser
 
 ## Known issues
 
-This server emulator is not nearly perfect, but it works! (as shown in the gif below), but here is some issues that I can remember at the moment:
+This server emulator is not nearly perfect, but it works! (as shown in the video below), but here is some issues that I can remember at the moment:
 
 - The artifacts distribution may not be not how it should be (needs research).
 - Bots are not very smart, they just thrown the artifacts that he can use at the moment. (And was programmed to)

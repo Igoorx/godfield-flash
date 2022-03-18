@@ -2,9 +2,9 @@
 from __future__ import annotations
 from typing import TYPE_CHECKING, Optional
 if TYPE_CHECKING:
-    from modules.game.session import Session
-from modules.game.user import User
-from modules.game.room import Room
+    from modules.session import Session
+from modules.user import User
+from modules.room import Room
 from modules.item import ItemManager
 from helpers.xmlbuilder import XMLBuilder
 

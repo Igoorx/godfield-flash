@@ -2,8 +2,8 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Optional
 if TYPE_CHECKING:
     from server import Server
-    from modules.game.session import Session
-    from modules.game.room import Room
+    from modules.session import Session
+    from modules.room import Room
 from helpers.xmlbuilder import XMLBuilder
 
 import random

@@ -3,12 +3,12 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any, Optional
 if TYPE_CHECKING:
     from server import Server
-    from modules.game.session import Session
+    from modules.session import Session
 from helpers.xmlbuilder import XMLBuilder
-from modules.game.player import Player
-from modules.game.bot import Bot
-from modules.game.turn import TurnHandler
-from modules.game.attack import AttackData
+from modules.player import Player
+from modules.bot import Bot
+from modules.turn import TurnHandler
+from modules.attack import AttackData
 
 import random
 from twisted.internet import reactor

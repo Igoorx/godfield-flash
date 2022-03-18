@@ -1,6 +1,6 @@
 from dataclasses import dataclass
-from modules.game.player import Player
-from modules.game.attack import AttackData
+from modules.player import Player
+from modules.attack import AttackData
 from modules.item import Item
 
 from typing import Optional

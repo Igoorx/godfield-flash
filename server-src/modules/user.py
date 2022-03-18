@@ -4,7 +4,7 @@ from typing import TYPE_CHECKING, Any, Optional
 if TYPE_CHECKING:
     from server import Server
 from helpers.xmltodict import parse as xmltodict
-from modules.game.session import Session
+from modules.session import Session
 
 from twisted.internet import protocol
 

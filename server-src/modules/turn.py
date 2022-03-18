@@ -3,11 +3,11 @@ from typing import TYPE_CHECKING, Optional
 if TYPE_CHECKING:
     from server import Server
     from modules.item import Item
-    from modules.game.room import Room
-    from modules.game.player import Player
+    from modules.room import Room
+    from modules.player import Player
 from helpers.xmlbuilder import XMLBuilder
-from modules.game.attack import AttackData
-from modules.game.bot import Bot
+from modules.attack import AttackData
+from modules.bot import Bot
 
 import random
 from queue import Queue
