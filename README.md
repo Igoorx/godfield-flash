@@ -17,7 +17,7 @@ This server emulator is not nearly perfect, but it works! (as shown in the video
 - The client backup may not be complete.
   - The backup was done by playing the game and downloading what was requested by the game, so maybe I didn't get everything, and I surely didn't get files from disabled game modes.
 
-![Demo](https://raw.githubusercontent.com/Igoorx/godfield-flash/master/demo.mp4)
+https://user-images.githubusercontent.com/14041768/159081100-ff837b56-2b9d-4c80-a722-9e6e32924994.mp4
 
 ## Requirements
 
