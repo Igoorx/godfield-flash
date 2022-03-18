@@ -1,13 +1,18 @@
-from helpers.xmlbuilder import XMLBuilder
+from dataclasses import dataclass
 from modules.game.player import Player
+from modules.game.attack import AttackData
+from modules.item import Item
 
+from typing import Optional
 import random
 
+__all__ = ("Bot",)
+
+
+@dataclass
 class EnemyStats:
-    def __init__(self):
-        self.lastHP = None
-        self.lastDiseases = None
-        self.damageCombo = 0
+    lastHP: Optional[int] = None
+    damageCombo: int = 0
 
 class Bot(Player):
     def __init__(self, name, team):
@@ -18,9 +23,7 @@ class Bot(Player):
 
     def checkEnemyStats(self):
         for player in self.room.players:
-            if player == self:
-                continue
-            if player.team != "SINGLE" and player.team == self.team:
+            if not player.isEnemy(self):
                 continue
 
             if player.dead:
@@ -37,21 +40,21 @@ class Bot(Player):
             else:
                 stats = self.enemyStats[player.name]
 
-            lastHP = stats.lastHP
-            if lastHP > player.hp:
-                # Took damage
-                stats.damageCombo += 1
+            if stats.lastHP is not None:
+                if stats.lastHP > player.hp:
+                    # Took damage
+                    stats.damageCombo += 1
 
-                if stats.damageCombo > 1 and not player in self.possiblyDefenceless:
-                    # Possibly defenseless
-                    self.possiblyDefenceless.append(player)
-            elif lastHP <= player.hp:
-                # Didn't took damage
-                stats.damageCombo = 0
+                    if stats.damageCombo > 1 and not player in self.possiblyDefenceless:
+                        # Possibly defenseless
+                        self.possiblyDefenceless.append(player)
+                elif stats.lastHP <= player.hp:
+                    # Didn't took damage
+                    stats.damageCombo = 0
 
             stats.lastHP = player.hp
 
-        print "Enemy Stats:", self.enemyStats
+        print(f"Enemy Stats: {self.enemyStats}")
 
     def getItemByAK(self, kind):
         for id in self.items:
@@ -231,15 +234,15 @@ class Bot(Player):
         return False
 
     def getMaxMPForMagic(self):
-        max = 0
+        maxMP = 0
         for id in self.magics:
             item = self.server.itemManager.getItem(id)
-            max = item.subValue if item.subValue > max else max
+            maxMP = max(item.subValue, maxMP)
         for id in self.items:
             item = self.server.itemManager.getItem(id)
             if item.type == "MAGIC":
-                max = item.subValue if item.subValue > max else max
-        return max
+                maxMP = max(item.subValue, maxMP)
+        return maxMP
 
     # Kind of a hack to avoid multiple magics surpassing the mp limit
     def removeExcessMagic(self, items):
@@ -250,19 +253,23 @@ class Bot(Player):
                 if mpCost > self.mp:
                     items.remove(item)
 
-    def on_turn(self):
+    def onAttackTurn(self) -> AttackData:
+        return AttackData(self, *self.buildAttack())
+
+    def buildAttack(self) -> tuple[Player, list[Item]]:
         # TODO: Build weighted list with all attack possibilities
         # TODO: Better MP Handling
+        # TODO: Help team-mates
 
         self.checkEnemyStats()
 
         target = None
         if len(self.possiblyDefenceless) == 0:
-            target = random.choice([player for player in self.room.players if not player.dead and player != self and (player.team == "SINGLE" or player.team != self.team)])
+            target = self.room.getRandomAliveEnemy(self)
         else:
-            print "Bot targetting possibly defenceless player."
+            print("Bot targetting possibly defenceless player.")
             target = random.choice(self.possiblyDefenceless)
-        print "Bot target:", target
+        print("Bot target:", target)
         
         random.shuffle(self.items) # TODO: don't do this in this way, maybe use a random access iterator or do a copy or smth
         random.shuffle(self.magics) # TODO: don't do this in this way, maybe use a random access iterator or do a copy or smth
@@ -286,8 +293,8 @@ class Bot(Player):
                 continue
             
             if item.attackKind == "SET_ASSISTANT":
-                # TODO: Not Implemented
-                continue
+                if self.assistantType is not None:
+                    continue
 
             if item.attackKind == "INCREASE_HP":
                 if lastResortAttack is None:
@@ -310,8 +317,9 @@ class Bot(Player):
 
             if item.type == "SUNDRY":
                 if item.attackKind == "SET_ASSISTANT":
-                    # TODO: Not Implemented
-                    continue
+                    if self.assistantType is not None:
+                        continue
+                    return self, [item]
 
                 if item.attackExtra in ["INCREASE_ATK", "MAGIC_FREE", "REVIVE", "MORTAR"]:
                     # These items can't be used for direct attacks
@@ -380,6 +388,9 @@ class Bot(Player):
 
             if item.type == "WEAPON":
                 if item.attackKind == "ATK":
+                    if item.attackExtra == "PESTLE":
+                        return target, [item]
+
                     if item.attackExtra == "DYING_ATTACK":
                         # Save the dying attack for when we are dying
                         # TODO: Use the dying attack if it can be good for us (hardly this can be possible tho)
@@ -412,7 +423,7 @@ class Bot(Player):
                             pieces += self.getItemsByAE("ADD_ATTRIBUTE", item.attribute)
                         self.removeExcessMagic(pieces)
                         damage = self.getItemsDamage(pieces)
-                        if damage > 5 and self.room.getAlivesCount() > 2:
+                        if damage > 5 and self.room.getAliveCount() > 2:
                             pieces += self.getItemsByAE("WIDE_ATK")
                         self.removeExcessMagic(pieces)
                         return target, pieces
@@ -427,7 +438,7 @@ class Bot(Player):
                             pieces += self.getItemsByAE("ADD_ATTRIBUTE", item.attribute)
                         self.removeExcessMagic(pieces)
                         damage = self.getItemsDamage(pieces)
-                        if damage > 5 and self.room.getAlivesCount() > 2:
+                        if damage > 5 and self.room.getAliveCount() > 2:
                             pieces += self.getItemsByAE("WIDE_ATK")
                         self.removeExcessMagic(pieces)
                         return target, pieces
@@ -470,8 +481,8 @@ class Bot(Player):
                     continue
                 
                 if item.attackKind == "SET_ASSISTANT":
-                    # TODO: Not Implemented
-                    continue
+                    if self.assistantType is not None:
+                        continue
 
                 if item.attackKind == "INCREASE_HP":
                     if lastResortAttack is None:
@@ -495,14 +506,16 @@ class Bot(Player):
 
         return target, [self.server.itemManager.getItem(0)]
 
-    def on_attack(self):
+    def onDefenseTurn(self):
+        assert(self.room.turn.currentAttack is not None)
+        
         # TODO: Build weighted list with all defense possibilities
         # TODO: Better MP Handling
         
         ret = []
 
         damage, attr = self.room.turn.currentAttack.damage, self.room.turn.currentAttack.attribute
-        print "Damage:", damage, "| Attr:", attr
+        print("Damage:", damage, "| Attr:", attr)
 
         if damage <= 0:
             # TODO: Try to reflect, flick or block

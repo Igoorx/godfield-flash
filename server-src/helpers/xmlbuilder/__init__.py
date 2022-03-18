@@ -1,7 +1,9 @@
 #!/usr/bin/env python
 #-------------------------------------------------------------------------------
 import weakref
+from xml.dom.minidom import Document
 from xml.etree.ElementTree import TreeBuilder, tostring, fromstring
+from typing import Any, Union
 #-------------------------------------------------------------------------------
 __all__ = ["XMLBuilder"]
 
@@ -74,6 +76,13 @@ Happy xml'ing.
 
 
 class XMLNode(object):
+    __document: Any
+    __childs: list[Union['XMLNode', str]]
+    __tag: Any
+    __attrs: dict[str, str]
+
+    __slots__ = tuple(__annotations__)
+
     def __init__(self, doc, tag, *args, **kwargs):
         self.__document = doc
         self.__childs = []
@@ -83,7 +92,7 @@ class XMLNode(object):
     
     def __xml_update(self, args, kwargs):
         for arg in args:
-            if not isinstance(arg, basestring):
+            if not isinstance(arg, str):
                 raise ValueError(
                     "Non-named arguments should be string only, not %r" \
                                     % (arg,))
@@ -91,37 +100,30 @@ class XMLNode(object):
         self.__childs.append("".join(args))
     
         for key, val in kwargs.items():
-            if not isinstance(val, basestring):
+            if not isinstance(val, str):
                 raise ValueError(
                     "Attribute values should be string only, not %r" \
                                     % (val,))
         self.__attrs.update(kwargs)
     
     def __setitem__(self, name, val):
-        if not isinstance(val, basestring):
+        if not isinstance(val, str):
             raise ValueError("Attribute names should be string only, not %r" \
                                 % (val,))
 
-        if not isinstance(val, basestring):
-            raise ValueError("Attribute values should be string only, not %r" \
-                                % (val,))
-        
         self.__attrs[name] = val
     
-    def __getattr__(self, name):
+    def __getattr__(self, name) -> 'XMLNode':
         node = XMLNode(self.__document, name)
         self.__childs.append(node)
         return node
     
-    def __call__(self, *args, **kwargs):
+    def __call__(self, *args, **kwargs) -> 'XMLNode':
         self.__xml_update(args, kwargs)
         return self
-    
-    def __unicode__(self):
-        return str(self).decode(self.__document()['encoding'])
         
     def __str__(self):
-        return tostring(~self, self.__document()['encoding'])
+        return tostring(~self, self.__document()['encoding']).decode(self.__document()['encoding'])
     
     def __invert__(self):
         builder = self.__document()['builder']()
@@ -130,7 +132,7 @@ class XMLNode(object):
     
     def __child_tag_count(self):
         return len([child for child in self.__childs
-                        if not isinstance(child, basestring)])
+                        if not isinstance(child, str)])
         
     def __toxml(self, builder, level):
         if self.__document()['formatted']:    
@@ -142,7 +144,7 @@ class XMLNode(object):
         builder.start(self.__tag, self.__attrs)
         
         for child in self.__childs:
-            if isinstance(child, basestring):
+            if isinstance(child, str):
                 builder.data(child)
             else:
                 child.__toxml(builder, level + 1)
@@ -164,6 +166,9 @@ class XMLNode(object):
 
 
 class XMLBuilder(object):
+    __stack: list[XMLNode]
+    __opts: dict[str, Any]
+
     def __init__(self, root_name, *args, **kwargs):
         root = XMLNode(weakref.ref(self), root_name, *args, **kwargs)
         self.__stack = [root]
@@ -182,13 +187,13 @@ class XMLBuilder(object):
     def __setitem__(self, name, val):
         self.__opts[name] = val
     
-    def __getattr__(self, name):
+    def __getattr__(self, name) -> XMLNode:
         return getattr(self.__stack[-1], name)
     
     def __lshift__(self, val):
         return self.__stack[-1] << val
     
-    def __call__(self, obj):
+    def __call__(self, obj) -> Union['XMLBuilder', None]:
         if obj is None:
             self.__stack.pop()
         else:

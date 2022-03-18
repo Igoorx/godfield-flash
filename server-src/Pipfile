@@ -7,7 +7,7 @@ verify_ssl = true
 
 [packages]
 twisted = "*"
-python2-secrets = "*"
+numpy = "*"
 
 [requires]
-python_version = "2.7"
+python_version = "3"

@@ -1,17 +1,35 @@
-from twisted.internet import reactor, protocol
-
+# type: ignore[reportGeneralTypeIssues]
+from __future__ import annotations
+from typing import TYPE_CHECKING, Any, Optional
+if TYPE_CHECKING:
+    from server import Server
 from helpers.xmltodict import parse as xmltodict
-from helpers.xmlbuilder import XMLBuilder
-
 from modules.game.session import Session
+
+from twisted.internet import protocol
+
+__all__ = ("User",)
 
 
 class User(protocol.Protocol):
+    recvd: str
+    server: Server
+    session: Optional[Session]
+
+    __slots__ = tuple(__annotations__)
+
     def __init__(self):
         self.recvd = str()
 
-        self.server = None
         self.session = None
+
+    def getServerMode(self) -> str:
+        if self.server.mode == "ANY":
+            host = self.transport.getHost()
+            for type, port in self.server.typesPorts.items():
+                if port == host.port:
+                    return type
+        return self.server.mode
 
     def connectionMade(self):
         self.server = self.factory
@@ -21,8 +39,10 @@ class User(protocol.Protocol):
             self.session.onDisconnect()
     
     def dataReceived(self, data):
+        data = data.decode()
+
         if data == "<policy-file-request/>\0":
-            self.transport.write("<cross-domain-policy><allow-access-from domain=\"*\" to-ports=\"*\" /></cross-domain-policy>\0")
+            self.transport.write(b"<cross-domain-policy><allow-access-from domain=\"*\" to-ports=\"*\" /></cross-domain-policy>\0")
             self.transport.loseConnection()
             return
 
@@ -33,31 +53,29 @@ class User(protocol.Protocol):
 
         xmls = self.recvd.split("\0")
         for xml in xmls:
-            if xml == str(): break
+            if len(xml) == 0:
+                break
             xml = xml.replace("\n", " ")
-            
             self.parseXml(xml)
 
         self.recvd = str()
 
     def sendXml(self, xml):
         if self.session is not None:
-            print "SEND ("+self.session.name+"):", repr(str(xml))
-        self.transport.write(str(xml) + chr(0))
+            print(f"SEND ({self.session.name}): {repr(str(xml))}")
+        self.transport.write((str(xml) + chr(0)).encode())
 
-    def parseXml(self, xml):
-        xmldict = xmltodict(xml)
-        request = xmldict.keys()[0]
-        xmldict = xmldict.values()[0] if xmldict.values()[0] != None else dict()
+    def parseXml(self, xml: str):
+        xmldict: Any = xmltodict(xml)
+        request = list(xmldict.keys())[0]
+        xmldict = list(xmldict.values())[0] if list(xmldict.values())[0] != None else dict()
 
         #print repr(xml)
-        print "RECV ("+(self.session.name if self.session else "?")+"):", request, xmldict
-
-        #<player><name>Igoor</name><team>SINGLE</team><isReady/><power key="HP">90</power><power key="MP">90</power><power key="YEN">90</power></player><player><name>Sinbad</name><team>SINGLE</team><isReady/><power key="HP">40</power><power key="MP">10</power><power key="YEN">20</power></player><player><name>Santa Claus</name><team>SINGLE</team><isReady/><power key="HP">40</power><power key="MP">10</power><power key="YEN">20</power></player><player><name>Odin</name><team>SINGLE</team><isReady/><power key="HP">40</power><power key="MP">10</power><power key="YEN">20</power></player></players><privatePlayer/></game></room></ENTER>""" + chr(0))
+        print(f"RECV \"{request}\" from {self.session.name if self.session else '?'}: {xmldict}")
 
         if request == "ERROR":
-            print repr(xml)
-            print request, xmldict
+            print(repr(xml))
+            print(request, xmldict)
 
         elif request == "LOGIN":
             name = xmldict["name"]

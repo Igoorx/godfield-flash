@@ -1,5 +1,5 @@
 # -*- encoding:utf8 -*-
-from __future__ import with_statement
+
 from nose.tools import eq_, raises
 from xmlbuilder import XMLBuilder
 
@@ -18,7 +18,7 @@ class TestXMLBuilder(object):
 
     def test_unicode(self):
         self.xml.t
-        eq_(unicode(self.xml), u"<root><t /></root>")
+        eq_(str(self.xml), "<root><t /></root>")
 
     def test_simple1(self):
         self.xml.t
@@ -132,27 +132,27 @@ class TestXMLBuilder(object):
         eq_(str(self.xml), '<root><tree_root a="dt">11<tt /></tree_root></root>')        
 
     def test_unicode(self):
-        with self.xml.tree_root(a=u'dt'):
-            self.xml << u'11'
+        with self.xml.tree_root(a='dt'):
+            self.xml << '11'
             self.xml.tt('12')
 
-        eq_(str(self.xml), u'<root><tree_root a="dt">11<tt>12</tt></tree_root></root>')        
+        eq_(str(self.xml), '<root><tree_root a="dt">11<tt>12</tt></tree_root></root>')        
 
     def test_unicode1(self):
-        with self.xml.tree_root(a=u'dt'):
-            self.xml << u'11'
+        with self.xml.tree_root(a='dt'):
+            self.xml << '11'
             self.xml.tt('12')
 
-        eq_(unicode(self.xml),
-            u'<root><tree_root a="dt">11<tt>12</tt></tree_root></root>')        
+        eq_(str(self.xml),
+            '<root><tree_root a="dt">11<tt>12</tt></tree_root></root>')        
 
     def test_unicode2(self):
-        with self.xml.tree_root(a=u'dt'):
-            self.xml << u'бла-бла-бла'
+        with self.xml.tree_root(a='dt'):
+            self.xml << 'бла-бла-бла'
             self.xml.tt('12')
 
         eq_(str(self.xml).decode('utf8'),
-            u'<root><tree_root a="dt">бла-бла-бла<tt>12</tt></tree_root></root>')        
+            '<root><tree_root a="dt">бла-бла-бла<tt>12</tt></tree_root></root>')        
 
     def test_with_all(self):
         self.xml.top

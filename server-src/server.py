@@ -1,47 +1,81 @@
-from twisted.internet import reactor, protocol
-
+# type: ignore[reportGeneralTypeIssues]
+from __future__ import annotations
+from typing import TYPE_CHECKING, Optional
+if TYPE_CHECKING:
+    from modules.game.session import Session
 from modules.game.user import User
 from modules.game.room import Room
-from modules.itemManager import ItemManager
+from modules.item import ItemManager
 from helpers.xmlbuilder import XMLBuilder
+
+from twisted.internet import reactor, protocol
+
+__all__ = ("Server",)
 
 
 class Server(protocol.ServerFactory):
+    mode: str
+    language: str
+    serverNumber: int
+    users: list[Session]
+    rooms: dict[int, Room]
+    lastRoomId: int
+    itemManager: ItemManager
+    typesPorts: dict[str, int]
+
+    __slots__ = tuple(__annotations__)
+
     protocol = User
 
-    def __init__(self, mode):
+    def __init__(self, mode: str, language: str, serverNumber: int):
         self.mode = mode
+        self.language = language
+        self.serverNumber = serverNumber
         self.users = list()
         self.rooms = dict()
         self.lastRoomId = 0
 
-        self.itemManager = ItemManager("ItemData.CSV")
+        self.itemManager = ItemManager("ItemData.CSV", "AssistantItemData.CSV")
 
-    def getUser(self, name):
+        self.typesPorts = dict()
+
+        def setServerType(type: str, port: int):
+            self.typesPorts[type] = port + self.serverNumber
+        setServerType("TRAINING", 58000)
+        setServerType("FREE_FIGHT_PRIVATE", 58200 if self.language == "JP" else 58250)
+        setServerType("FREE_FIGHT", 58100 if self.language == "JP" else 58150)
+        setServerType("DUEL", 58300)
+        setServerType("SPIRIT", 58400)
+        
+        if self.mode != "ANY" and self.mode not in self.typesPorts:
+            print(f"WARNING: Invalid server mode \"{self.mode}\", using default server mode (ANY).")
+            self.mode = "ANY"
+        
+    def getUser(self, name: str) -> Optional[Session]:
         for user in self.users:
-            if user.name == name:
+            if user is not None and user.name == name:
                 return user
         return None
 
-    def getRoom(self, id):
-        if id not in self.rooms:
-            return None
-        return self.rooms[id]
+    def getRoom(self, id: int) -> Optional[Room]:
+        if id in self.rooms:
+            return self.rooms[id]
+        return None
 
     def lobbyBroadXml(self, xml):
         for user in self.users:
-            if user.state == "LOBBY":
+            if user is not None and user.state == "LOBBY":
                 user.sendXml(xml)
 
-    def buildLobbyXml(self):
+    def buildLobbyXml(self) -> XMLBuilder:
         builder = XMLBuilder("ENTER")
         builder.lobby  # <lobby />
 
-        for user_ in self.users:
+        for user in self.users:
             bUser = builder.user
-            bUser.name(user_.name)
-            if user_.room is not None:
-                bUser.roomID(str(user_.room.id))
+            bUser.name(user.name)
+            if user.room is not None:
+                bUser.roomID(str(user.room.id))
         
         for room in self.rooms.values():
             bRoom = builder.room
@@ -63,22 +97,22 @@ class Server(protocol.ServerFactory):
 
         return builder
 
-    def addUser(self, user):
+    def addUser(self, user: Session):
         self.users.append(user)
 
         builder = XMLBuilder("ADD_USER")
         builder.user.name(user.name)
         self.lobbyBroadXml(builder)
 
-    def removeUser(self, user):
+    def removeUser(self, user: Session):
         self.users.remove(user)
 
         builder = XMLBuilder("REMOVE_USER")
         builder.user.name(user.name)
         self.lobbyBroadXml(builder)
 
-    def createRoom(self, name):
-        room = Room(self, name)
+    def createRoom(self, name: str, password: str = "") -> Room:
+        room = Room(self, name, password)
 
         self.lastRoomId += 1
         self.rooms[self.lastRoomId] = room
@@ -88,20 +122,19 @@ class Server(protocol.ServerFactory):
 
 
 def main():
-    serverMode = argv[1] if len(argv) > 1 else "FREEFIGHT"
+    serverMode = argv[1] if len(argv) > 1 else "ANY"
+    serverLanguage = argv[2] if len(argv) > 2 else "EN"
+    serverNumber = int(argv[3]) if len(argv) > 3 else 1
+        
+    factory = Server(serverMode, serverLanguage, serverNumber)
 
-    if serverMode not in ["TRAINING", "FREEFIGHT", "PRIVATEFREEFIGHT"]:
-        print "WARNING: Invalid server mode \""+serverMode+"\""
-        serverMode = "FREEFIGHT"
+    if factory.mode == "ANY":
+        for port in factory.typesPorts.values():
+            reactor.listenTCP(port, factory)
+    else:
+        reactor.listenTCP(factory.typesPorts[factory.mode], factory)
 
-    factory = Server(serverMode)
-    reactor.listenTCP(58251, factory)
-    reactor.listenTCP(58151, factory) #EN_FREEFIGHT
-    reactor.listenTCP(58101, factory)
-    reactor.listenTCP(58001, factory) #TRAINING
-    reactor.listenTCP(853, factory)
-
-    print "Server listening in port 58151"
+    print("Server listening for new connections")
     reactor.run()
 
 # this only runs if the module was *not* imported

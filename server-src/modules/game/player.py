@@ -1,48 +1,81 @@
+from __future__ import annotations
+from typing import TYPE_CHECKING, Optional
+if TYPE_CHECKING:
+    from server import Server
+    from modules.game.session import Session
+    from modules.game.room import Room
+from helpers.xmlbuilder import XMLBuilder
+
 import random
 
-from helpers.xmlbuilder import XMLBuilder
+__all__ = ("Player",)
 
 
 class Player:
-    def __init__(self, user, name, team):
+    name: str
+    team: str
+    session: Optional[Session]
+    server: Server
+    room: Room
+    ready: bool
+    dead: bool
+    lost: bool
+    finished: bool
+    waitingAttackTurn: bool
+    hp: int
+    mp: int
+    yen: int
+    disease: str
+    worseChance: int
+    harms: list[str]
+    deal: int
+    magics: list[int]
+    items: list[int]
+    assistantType: str
+    assistantHP: int
+
+    __slots__ = tuple(__annotations__)
+
+    def __init__(self, session: Optional[Session], name: str, team: str):
         self.name = name
         self.team = team
-        self.user = user
 
-        if user is not None:
-            self.server = user.server
-            self.room = user.room
+        self.session = session
+        if session is not None:
+            assert session.room is not None
+            self.server = session.server
+            self.room = session.room
 
         self.reset()
 
     def __str__(self):
-        return "<Player {name}>".format(name=self.name)
+        return f"<Player {self.name}>"
 
-    def hasLowerDisease(self):
-        return self.disease in ["COLD", "FEVER", "FOG", "GLORY"]
+    def setFromPlayer(self, other: Player):
+        self.ready = other.ready
+        self.dead = other.dead
+        self.lost = other.lost
+        self.finished = other.finished
+        self.waitingAttackTurn = other.waitingAttackTurn
 
-    def setFromPlayer(self, otherPlayer):
-        self.ready = otherPlayer.ready
-        self.dead = otherPlayer.dead
-        self.lost = otherPlayer.lost
-        self.finished = otherPlayer.finished
-        self.waitingAttackTurn = otherPlayer.waitingAttackTurn
+        self.hp = other.hp
+        self.mp = other.mp
+        self.yen = other.yen
 
-        self.hp = otherPlayer.hp
-        self.mp = otherPlayer.mp
-        self.yen = otherPlayer.yen
+        self.disease = other.disease
+        self.worseChance = other.worseChance
+        self.harms = other.harms
 
-        self.disease = otherPlayer.disease
-        self.worseChance = otherPlayer.worseChance
-        self.harms = otherPlayer.harms
+        self.deal = other.deal
 
-        self.deal = otherPlayer.deal
+        self.magics = other.magics
+        self.items = other.items
 
-        self.magics = otherPlayer.magics
-        self.items = otherPlayer.items
+        self.assistantType = other.assistantType
+        self.assistantHP = other.assistantHP
 
     def reset(self):
-        self.ready = bool()
+        self.ready = False
         self.dead = False
         self.lost = False
         self.finished = False
@@ -52,7 +85,7 @@ class Player:
         self.mp = 10
         self.yen = 20
 
-        self.disease = None
+        self.disease = str()
         self.worseChance = int()
         self.harms = list()
 
@@ -61,11 +94,52 @@ class Player:
         self.magics = list()
         self.items = list()
 
-    def diseaseEffect(self, selfAttack = False):
-        if not self.disease or (not selfAttack and self.hp == 0):
-            # Ignore if we aren't diseased or we are already dead
-            assert False, "Invalid call to diseaseEffect"
-            return False
+        self.assistantType = str()
+        self.assistantHP = 0
+
+    def isEnemy(self, other: Player):
+        return other != self and (other.team == "SINGLE" or other.team != self.team)
+
+    def increaseHP(self, amount: int):
+        assert amount >= 0
+        self.hp = min(99, self.hp + amount)
+
+    def increaseMP(self, amount: int):
+        assert amount >= 0
+        self.mp = min(99, self.mp + amount)
+
+    def increaseYen(self, amount: int):
+        assert amount >= 0
+        self.yen = min(99, self.yen + amount)
+
+    def takeDamage(self, damage: int):
+        assert damage >= 0
+        if self.assistantHP > 0:
+            self.assistantHP -= damage
+            damage = 0
+            if self.assistantHP < 0:
+                damage = self.assistantHP * -1
+                self.assistantHP = 0
+            if self.assistantHP == 0:
+                self.assistantType = ""
+        self.hp = max(0, self.hp - damage)
+
+    def decreaseYen(self, amount):
+        self.yen -= amount
+        if self.yen >= 0:
+            return
+        self.mp -= self.yen * -1
+        self.yen = 0
+        if self.mp >= 0:
+            return
+        self.hp = max(0, self.hp - self.mp * -1)
+        self.mp = 0
+
+    def hasLowerDisease(self) -> bool:
+        return self.disease in ["COLD", "FEVER"] or any(harm in ["FOG", "GLORY"] for harm in self.harms)
+
+    def diseaseEffect(self) -> bool:
+        assert self.disease and self.hp != 0, f"\"{self.name}\": Invalid call to diseaseEffect (Disease: {self.disease}, HP: {self.hp})"
         
         damage = 0
         if self.disease == "COLD":
@@ -77,142 +151,123 @@ class Player:
         elif self.disease == "HEAVEN":
             damage = -5
         else:
-            assert False, "Unimplemented disease: " + self.disease
+            assert False, f"Unimplemented disease: {self.disease}"
         
         self.hp = max(0, min(99, self.hp - damage))
         return True
 
-    def addHarm(self, harm):
+    def addHarm(self, harm: str):
         diseases = ["COLD", "FEVER", "HELL", "HEAVEN"]
         if harm in diseases:
             if self.disease:
                 if self.disease == "HEAVEN":
-                    print "FALL FROM THE HEAVEN"
+                    print("FALL FROM THE HEAVEN")
                     self.hp = 0
+                    self.assistantType = ""
+                    self.assistantHP = 0
                 else:
                     idx = diseases.index(self.disease)
-                    if idx < diseases.index(harm):
-                        self.disease = harm
-                    else:
-                        self.disease = diseases[idx + 1]
+                    self.disease = harm if idx < diseases.index(harm) else diseases[idx + 1]
             else:
                 self.disease = harm
             self.worseChance = 0
-        else:
-            if not harm in self.harms:
-                self.harms.append(harm)
-        print "Current Harm:", self.harms, "Current Disease:", self.disease
+        elif harm not in self.harms:
+            self.harms.append(harm)
+        print(f"\"{self.name}\": Current Harm: {self.harms}, Current Disease: {self.disease}")
 
-    def removeAllHarms(self, onlyLower=False):
+    def removeAllHarms(self, onlyLower: bool = False):
         if not onlyLower:
-            print "Remove all harms"
-            self.disease = None
+            print("Remove all harms")
+            self.disease = ""
             self.worseChance = 0
-            self.harms = list()
+            self.harms = []
             return
 
-        print "Remove lower harms"
-        if self.disease == "COLD" or self.disease == "FEVER":
-            self.disease = None
+        print(f"\"{self.name}\": Remove lower harms")
+        if self.disease in ["COLD", "FEVER"]:
+            self.disease = ""
             self.worseChance = 0
         if "FOG" in self.harms:
-            # TODO: Properly implement UNFOG
+            # TODO: Properly implement "UNFOG"
             self.harms.remove("FOG")
         if "GLORY" in self.harms:
             self.harms.remove("GLORY")
 
-    def dealItem(self, id, fromBuy=False):
-        print self.name + " deal " + str(id)
-        self.items.append(int(id))
+    def dealItem(self, id: int, noXml: bool = False):
+        assert id in self.server.itemManager
+        
+        print(f"{self.name} deal {id}")
+        self.items.append(id)
 
-        if not fromBuy and self.user is not None:
+        if not noXml and self.session is not None:
             builder = XMLBuilder("DEAL")
             builder.item(str(id))
-            self.user.sendXml(builder)
+            self.session.sendXml(builder)
 
-    def hasItem(self, id):
+    def hasItem(self, id: int) -> bool:
         return id in self.items
 
-    def hasAttackKind(self, kind):
+    def hasAttackKind(self, kind: str) -> bool:
         for id in self.items:
             item = self.server.itemManager.getItem(id)
             if item.attackKind == kind:
                 return True
         return False
 
-    def hasMagic(self, id):
+    def hasMagic(self, id: int) -> bool:
         return id in self.magics
 
-    def getRandomItem(self):
+    def getRandomItem(self) -> int:
         if len(self.items) == 0:
             return 0
-
         return random.choice(self.items)
 
-    def getRandomMagic(self):
+    def getRandomMagic(self) -> int:
         if len(self.magics) == 0:
             return 0
-        
         return random.choice(self.magics)
 
-    def discardItem(self, id):
+    def discardItem(self, id: int) -> bool:
         if not self.hasItem(id):
-            assert False, "Tried to discard non-existent item"
-            return False
+            assert False, f"\"{self.name}\" tried to discard item that he doesn't have ({id})"
         
-        print self.name + " discard " + str(id)
+        print(f"{self.name} discard item {id}")
         self.items.remove(id)
         return True
-        
 
-    def discardMagic(self, id):
+    def discardMagic(self, id: int) -> bool:
         if not self.hasMagic(id):
-            assert False, "Tried to discard non-existent magic"
-            return False
+            assert False, f"\"{self.name}\" tried to discard magic that he doesn't have ({id})"
         
+        print(f"{self.name} discard magic {id}")
         self.magics.remove(id)
         return True
-        
 
-    def itemUsed(self, id, noMPCost):
-        #TODO: Cost mp, etc etc etc
+    def useItem(self, id: int, noMPCost: bool):
         if not self.hasItem(id):
-            print self.items
-            assert False, "Tried to use an item that he doesn't have"
-            return False
+            print(self.items)
+            assert False, f"\"{self.name}\" tried to use an item that he doesn't have ({id})"
         
         item = self.server.itemManager.getItem(id)
         if item.type == "FIXED":
-            return True
+            # FIXED artifacts are eternal.
+            pass
+        elif item.type == "MAGIC":
+            assert noMPCost or self.mp >= item.subValue, f"\"{self.name}\" tried to use magic with not enough MP ({self.mp} >= {item.subValue})"
+            self.magics.append(id)
+            self.items.remove(id)
+            if not noMPCost:
+                self.mp -= item.subValue
+        else:
+            self.items.remove(id)
 
-        if item.type == "MAGIC":
-            if noMPCost or self.mp >= item.subValue:
-                # Register and use magic
-                self.magics.append(id)
-                self.items.remove(id)
-                if not noMPCost:
-                    self.mp -= item.subValue
-                return True
-            else:
-                print(self.mp)
-                print(item.__dict__)
-                assert False, "Tried to use magic with not enough MP"
-                return False
-        
-        self.items.remove(id)
-        return True
-
-    def magicUsed(self, id, noMPCost):
-        #TODO: Cost mp, etc etc etc
+    def tryUseMagic(self, id: int, noMPCost: bool) -> bool:
         if not self.hasMagic(id):
             return False
         
         item = self.server.itemManager.getItem(id)
-
-        if noMPCost or self.mp >= item.subValue:
-            if not noMPCost:
-                self.mp -= item.subValue
-            return True
+        assert noMPCost or self.mp >= item.subValue, f"\"{self.name}\" tried to use magic with not enough MP ({self.mp} >= {item.subValue})"
         
-        assert False, "Tried to use magic with not enough MP"
-        return False
+        if not noMPCost:
+            self.mp -= item.subValue
+        return True

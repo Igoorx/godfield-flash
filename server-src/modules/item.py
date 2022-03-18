@@ -1,61 +1,81 @@
+from dataclasses import dataclass
+import numpy
+import random
+
+__all__ = ("Item", "ItemManager",)
 
 
+@dataclass(frozen=True)
 class Item:
-    def __init__(self):
-        #self.assistantType = str()
-        self.id = int()
+    id: int
+    assistantType: str
+    type: str
+    attackKind: str
+    attackExtra: str
+    defenseKind: str
+    defenseExtra: str
+    attribute: str
+    value: int
+    subValue: int
+    hitRate: int
+    price: int
+    weight: int
 
-        self.type = str()
-        self.attackKind = str()
-        self.attackExtra = str()
-        self.defenseKind = str()
-        self.defenseExtra = str()
-        self.attribute = str()
-        self.value = int()
-        self.subValue = int()
-        self.hitRate = int()
-        self.price = int()
-        self.weight = int()
+    __slots__ = tuple(__annotations__)
 
-        #WEAPON,ATK,DYING_ATTACK,,,LIGHT,1,30,75,10,1
-        #Arco /\
+    @staticmethod
+    def fromData(id: int, data: list[str]):
+        return Item(
+            id             = id,
+            assistantType  = "",
+            type           = data[0],
+            attackKind     = data[1],
+            attackExtra    = data[2],
+            defenseKind    = data[3],
+            defenseExtra   = data[4],
+            attribute      = data[5],
+            value          = int(data[6]) if data[6] else 0,
+            subValue       = int(data[7]) if data[7] else 0,
+            hitRate        = int(data[8]) if data[8] else 0,
+            price          = int(data[9]) if data[9] else 0,
+            weight         = int(data[10]) if data[10] else 0
+        )
 
-    def __repr__(self):
-        return "<Item {id} \"{dict}\">".format(id=self.id, dict=self.__dict__)
-
-    def isAtkHarm(self):
+    @staticmethod
+    def fromAssistantData(id: int, data: list[str]):
+        return Item(
+            id             = id,
+            assistantType  = data[0],
+            type           = "WEAPON",
+            attackKind     = data[1],
+            attackExtra    = data[2],
+            defenseKind    = "",
+            defenseExtra   = "",
+            attribute      = data[3],
+            value          = int(data[4]) if data[4] else 0,
+            subValue       = 0,
+            hitRate        = int(data[5]) if data[5] else 0,
+            price          = 0,
+            weight         = int(data[6]) if data[6] else 0
+        )
+    
+    def isAtkHarm(self) -> bool:
         return self.attackExtra in ["COLD", "FEVER", "HELL", "HEAVEN", "FOG", "ILLUSION", "GLORY", "DARK_CLOUD"]
 
-    def isDefHarm(self):
+    def isDefHarm(self) -> bool:
         return self.defenseExtra in ["COLD", "FEVER", "HELL", "HEAVEN", "FOG", "ILLUSION", "GLORY", "DARK_CLOUD"]
 
-    def loadFromData(self, data):
-        #self.assistantType  = None
-        self.type           = data[0]
-        self.attackKind     = data[1]
-        self.attackExtra    = data[2]
-        self.defenseKind    = data[3]
-        self.defenseExtra   = data[4]
-        self.attribute      = data[5]
-        self.value          = int(data[6]) if data[6] else 0
-        self.subValue       = int(data[7]) if data[7] else 0
-        self.hitRate        = int(data[8]) if data[8] else 0
-        self.price          = int(data[9]) if data[9] else 0
-        self.weight         = int(data[10]) if data[10] else 0
-
-        # print(repr(self))
-
-    def getAtk(self):
+    def getAtk(self) -> int:
         if self.attackKind == "ATK":
             return self.value
-        if self.attackExtra == "INCREASE_ATK" or self.attackExtra == "ADD_ATTRIBUTE":
-            if self.type == "WEAPON" or self.type == "MAGIC":
+        if self.attackExtra in ["INCREASE_ATK", "ADD_ATTRIBUTE"]:
+            if self.type in ["WEAPON", "MAGIC"]:
                 return self.value
-            elif self.type == "PROTECTOR" or self.type == "SUNDRY":
+            elif self.type in ["PROTECTOR", "SUNDRY"]:
                 return self.subValue
         return 0
 
-    def getDef(self):
+    def getDef(self) -> int:
         if self.defenseKind == "DFS":
             if self.type == "WEAPON":
                 return self.subValue
@@ -63,5 +83,80 @@ class Item:
                 return self.value
         return 0
 
-    def getAD(self):
+    def getAD(self) -> list[int]:
         return [self.getAtk(), self.getDef()]
+
+
+class ItemManager:
+    items: list[Item]
+    itemsProbabilities: numpy.ndarray
+    assistantItems: dict[str, list[Item]]
+    assistantItemsProbabilities: dict[str, numpy.ndarray]
+    randGen: numpy.random.Generator
+
+    __slots__ = tuple(__annotations__)
+
+    def __init__(self, dataFilename: str, assistantDataFilename: str):
+        self.items = list()
+        self.assistantItems = dict()
+        self.randGen = numpy.random.default_rng()
+
+        self.loadItems(dataFilename)
+        self.loadAssistantItems(assistantDataFilename)
+
+    def __contains__(self, id: int) -> bool:
+        return any(item.id == id for item in self.items)
+        
+    def getItem(self, id: int) -> Item:
+        for item in self.items:
+            if item.id == id:
+                return item
+        assert False, "Tried to get innexistant item"
+
+    def getRandomItem(self, types: list[str]) -> Item:
+        item = None
+        while item is None:
+            chosen = self.items[random.randrange(len(self.items))]
+            item = chosen if chosen.type in types else None
+        return item
+
+    def getProbRandomItems(self, count: int) -> list[Item]:
+        if count == 0:
+            return []
+        return self.randGen.choice(self.items, count, p = self.itemsProbabilities) # type: ignore
+
+    def getProbRandomAssistantItem(self, assistantType: str) -> Item:
+        assert assistantType in self.assistantItems
+        return self.randGen.choice(self.assistantItems[assistantType], 1, p = self.assistantItemsProbabilities[assistantType])[0] # type: ignore
+
+    def loadItems(self, dataFilename: str):
+        itemWeights = []
+        with open(dataFilename, 'r') as f:
+            for line in f:
+                item = Item.fromData(len(self.items), line.rstrip("\n").split(","))
+                self.items.append(item)
+                itemWeights.append(item.weight)
+
+        self.itemsProbabilities = numpy.array(list(map(float, itemWeights)))
+        self.itemsProbabilities = self.itemsProbabilities / sum(itemWeights)
+
+        print(f"ItemManager: Loaded {len(self.items)} items")
+
+    def loadAssistantItems(self, dataFilename: str):
+        itemWeights = {}
+        with open(dataFilename, 'r') as f:
+            for line in f:
+                assistantItemData = line.rstrip("\n").split(",")
+                assistantItemList = self.assistantItems.setdefault(assistantItemData[0], [])
+                assistantItemWeights = itemWeights.setdefault(assistantItemData[0], [])
+
+                item = Item.fromAssistantData(len(assistantItemList), assistantItemData)
+                assistantItemList.append(item)
+                assistantItemWeights.append(item.weight)
+
+        self.assistantItemsProbabilities = {}
+        for type, items in itemWeights.items():
+            self.assistantItemsProbabilities[type] = numpy.array(list(map(float, items)))
+            self.assistantItemsProbabilities[type] = self.assistantItemsProbabilities[type] / sum(items)
+
+        print(f"ItemManager: Loaded {len(self.assistantItems)} assistant items")
