@@ -229,7 +229,7 @@ class Player:
 
     def discardItem(self, id: int) -> bool:
         if not self.hasItem(id):
-            assert False, f"\"{self.name}\" tried to discard item that he doesn't have ({id})"
+            assert False, f"\"{self.name}\" tried to discard item (id {id}) that he doesn't have"
         
         print(f"{self.name} discard item {id}")
         self.items.remove(id)
@@ -237,7 +237,7 @@ class Player:
 
     def discardMagic(self, id: int) -> bool:
         if not self.hasMagic(id):
-            assert False, f"\"{self.name}\" tried to discard magic that he doesn't have ({id})"
+            assert False, f"\"{self.name}\" tried to discard magic (id {id}) that he doesn't have"
         
         print(f"{self.name} discard magic {id}")
         self.magics.remove(id)
@@ -246,14 +246,14 @@ class Player:
     def useItem(self, id: int, noMPCost: bool):
         if not self.hasItem(id):
             print(self.items)
-            assert False, f"\"{self.name}\" tried to use an item that he doesn't have ({id})"
+            assert False, f"\"{self.name}\" tried to use an item (id {id}) that he doesn't have"
         
         item = self.server.itemManager.getItem(id)
         if item.type == "FIXED":
             # FIXED artifacts are eternal.
             pass
         elif item.type == "MAGIC":
-            assert noMPCost or self.mp >= item.subValue, f"\"{self.name}\" tried to use magic with not enough MP ({self.mp} >= {item.subValue})"
+            assert noMPCost or self.mp >= item.subValue, f"\"{self.name}\" tried to use magic (id {id}) with not enough MP ({self.mp} < {item.subValue})"
             self.magics.append(id)
             self.items.remove(id)
             if not noMPCost:
@@ -266,7 +266,7 @@ class Player:
             return False
         
         item = self.server.itemManager.getItem(id)
-        assert noMPCost or self.mp >= item.subValue, f"\"{self.name}\" tried to use magic with not enough MP ({self.mp} >= {item.subValue})"
+        assert noMPCost or self.mp >= item.subValue, f"\"{self.name}\" tried to use magic (id {id}) with not enough MP ({self.mp} < {item.subValue})"
         
         if not noMPCost:
             self.mp -= item.subValue

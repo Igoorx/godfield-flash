@@ -1,4 +1,5 @@
 from __future__ import annotations
+from http import server
 from typing import TYPE_CHECKING, Optional
 if TYPE_CHECKING:
     from server import Server
@@ -65,6 +66,7 @@ class Session:
             self.gotoTraining()
             self.server.addUser(self)
         elif serverMode == "FREE_FIGHT":
+            # TODO: If player is reconnecting, return him to the match where he was before
             self.gotoLobby()
             self.server.addUser(self)
         else:
@@ -76,6 +78,7 @@ class Session:
 
     def gotoTraining(self):
         self.room = self.server.createRoom("", "".join(__import__("random").choice(__import__("string").ascii_uppercase + __import__("string").digits) for _ in range(12)))
+        self.room.serverMode = self.user.getServerMode()
         self.room.language = self.language
         self.room.playersLimit = 4
         self.room.time = 1475196662616
@@ -113,6 +116,7 @@ class Session:
 
         if roomName is not None:
             room = self.server.createRoom(roomName)
+            room.serverMode = self.user.getServerMode()
             room.language = self.language
             room.playersLimit = int(xmldict.get("playersLimit", 2))
             room.fast = "isFast" in xmldict
@@ -145,14 +149,36 @@ class Session:
         if comment is None or len(comment.strip()) == 0:
             return
 
+        self.room.sendChat(self.name, comment)
+        
+        if self.user.ipAddress != "127.0.0.1":
+            return
+
         args = comment.split(" ")[1:]
 
         if comment == "go":
             self.room.startGame()
 
-        elif comment == "test_go":
-            for _ in range(100):
+        elif comment == "stop":
+            self.room.endGame()
+
+        elif comment.startswith("test_go"):
+            count = int(args[0]) if len(args) > 0 else 100
+
+            longestMatchSession = None
+            maxInningCount = -1
+            for _ in range(count):
+                newSession = FakeSession()
+                self.room.users[0] = newSession
                 self.room.startGame()
+                if longestMatchSession is None or self.room.inningCount > maxInningCount:
+                    longestMatchSession = newSession
+                    maxInningCount = self.room.inningCount
+
+            self.room.users[0] = self
+            if longestMatchSession is not None:
+                for xml in longestMatchSession.xmlList:
+                    self.sendXml(xml)
 
         elif comment == "die":
             if self.player is not None:
@@ -207,11 +233,10 @@ class Session:
                 builder.roomID(str(self.room.id))
                 self.server.lobbyBroadXml(builder)
 
-        self.room.sendChat(self.name, comment)
-
     @request("ENTER_GAME")
     def enterGameHandler(self, xmldict):
         assert self.room is not None
+        assert self.player is None
 
         team = xmldict.get("team")
         if team is not None:
@@ -276,3 +301,23 @@ class Session:
 
         if endInning:
             self.room.nextInning()
+
+class FakeSession(Session):
+    xmlList: list[str]
+
+    __slots__ = tuple(__annotations__)
+
+    def __init__(self):
+        self.name = str()
+        self.ipAddress = str()
+        self.language = str()
+        self.oneTimeID = str()
+        self.state = "UNKNOWN"
+        
+        self.room = None
+        self.player = None
+
+        self.xmlList = list()
+
+    def sendXml(self, xml):
+        self.xmlList.append(str(xml))

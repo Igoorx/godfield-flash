@@ -125,8 +125,10 @@ class TurnHandler:
         assert forced or len(atkData.piece) > 0
         assert forced or not atkData.attacker.dead, f"\"{atkData.attacker.name}\" is dead but tried to attack!"
         assert forced or not atkData.defender.dead, f"\"{atkData.defender.name}\" attacked but is dead!"
+
+        print(f"QueueAttack: piece={atkData.piece}")
         
-        if "FOG" in atkData.attacker.harms and atkData.attacker != atkData.defender:
+        if not forced and "FOG" in atkData.attacker.harms and atkData.attacker != atkData.defender:
             getRandomAlive = self.room.getRandomAliveEnemy if atkData.attacker.isEnemy(atkData.defender) else self.room.getRandomAliveAlly
             atkData.defender = getRandomAlive(atkData.attacker)
             print(f"Attack target changed to: {atkData.defender}")
@@ -151,10 +153,12 @@ class TurnHandler:
 
             if item.attackKind == "DO_NOTHING":
                 assert len(atkData.piece) == 1
+                assert not any(self.server.itemManager.getItem(item).type == "WEAPON" for item in atkData.attacker.items)
                 atkData.isAction = True
                 atkData.attacker.deal += 1
                 break
             elif item.attackKind == "DISCARD":
+                assert len(atkData.piece) > 1
                 atkData.isAction = True
                 break
             elif not forced:
@@ -271,7 +275,7 @@ class TurnHandler:
                 assert atkData.damage >= 0 and len(atkData.piece) > 1, "Tried to use DOUBLE_ATK alone"
                 atkData.damage *= 2
             elif item.attackExtra == "WIDE_ATK":
-                assert len(atkData.piece) > 1, "Tried to use WIDE_ATK alone"
+                assert atkData.damage >= 0 and len(atkData.piece) > 1, "Tried to use WIDE_ATK alone"
                 massiveAttack = True
                 atkData.chance = 100
                 atkData.attribute = ""
@@ -302,16 +306,9 @@ class TurnHandler:
             if item.attackKind == "ATK":
                 attack = item.getAtk()
                 
-                if atkData.attacker.dead and item.attackExtra == "DYING_ATTACK":
-                    assert atkData.decidedValue is not None
+                if atkData.decidedValue is not None:
+                    assert item.attackExtra == "DYING_ATTACK" or atkData.isCounter
                     attack = atkData.decidedValue
-
-                if item.id == 187:
-                    assert atkData.decidedValue is not None
-                    attack = atkData.decidedValue
-                elif item.id == 190:
-                    assert atkData.decidedValue is not None
-                    attack = atkData.decidedValue = atkData.decidedValue * 2
 
                 if item.hitRate > 0 and not massiveAttack:
                     massiveAttack = True
@@ -338,15 +335,17 @@ class TurnHandler:
                 _atkData = atkData.clone()
                 _atkData.defender = player
                 self.attackQueue.put(_atkData)
-            assert _atkData is not None
+            if _atkData is None:
+                print("No alive enemy was found, massive attack wasn't executed.")
+                return
             _atkData.isLast = True
         else:
             if atkData.isAction:
                 if atkData.defender != atkData.attacker:
-                    print(f"Attack target changed to attacker due to it being an action.")
+                    print("Attack target changed to attacker due to it being an action.")
                 atkData.defender = atkData.attacker
-            elif "TO_ENEMY" in atkData.extra:
-                print(f"Attack target changed to random enemy due to attackExtra.")
+            elif "TO_ENEMY" in atkData.extra and self.room.areEnemiesAlive(atkData.attacker):
+                print("Attack target changed to random enemy due to attackExtra.")
                 atkData.defender = self.room.getRandomAliveEnemy(atkData.attacker)
             print(f"New Attack: {atkData}, {atkData.piece}")
             atkData.isLast = True
@@ -360,9 +359,7 @@ class TurnHandler:
         missed = False if "DARK_CLOUD" in atkData.defender.harms else 0 < atkData.chance < random.randrange(1, 100 + 1)
 
         if not atkData.isAction and atkData.defender.dead:
-            if atkData.chance == 0 and (len(atkData.piece) == 0 or atkData.piece[0].defenseKind != "COUNTER"):
-                print(str(atkData))
-                assert False, "Dead being attacked!"
+            assert atkData.chance != 0 or atkData.isCounter or (atkData.piece and atkData.piece[0].assistantType), f"Dead being attacked! (Data={atkData}, Piece={atkData.piece})"
             return True
 
         print("Current Attack:", str(atkData))
@@ -490,7 +487,7 @@ class TurnHandler:
             if item.attackKind == "INCREASE_HP":
                 atkData.defender.increaseHP(item.value)
             elif item.attackKind == "INCREASE_MP":
-                if item.defenseKind == "COUNTER":
+                if atkData.isCounter:
                     assert atkData.decidedValue is not None
                     atkData.attacker.increaseMP(atkData.decidedValue * 2)
                 else:
@@ -616,12 +613,7 @@ class TurnHandler:
                     atkData.defender.addHarm(item.defenseExtra)
                     
                 defense = item.getDef()
-                
-                if False:#item.hitRate > 0:
-                    missed = True
-                    break
-                else:
-                    atkData.damage = max(0, atkData.damage - defense)
+                atkData.damage = max(0, atkData.damage - defense)
         
         chain = False
         if not reflected and not flicked and not blocked:
@@ -637,7 +629,10 @@ class TurnHandler:
                     print("Counter attack!")
                     target = atkData.attacker if item.attackKind != "INCREASE_MP" else atkData.defender
                     newAttack = AttackData(atkData.defender, target, [item])
-                    newAttack.decidedValue = atkData.damage if item.id in [187, 190, 193, 194] else None
+                    if item.id in [187, 194]:
+                        newAttack.decidedValue = atkData.damage
+                    elif item.id in [190, 193]:
+                        newAttack.decidedValue = atkData.damage * 2
                     newAttack.isCounter = True
                     self.queueAttack(newAttack, True)
                     

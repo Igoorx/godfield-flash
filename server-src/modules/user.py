@@ -1,5 +1,6 @@
 # type: ignore[reportGeneralTypeIssues]
 from __future__ import annotations
+from types import NoneType
 from typing import TYPE_CHECKING, Any, Optional
 if TYPE_CHECKING:
     from server import Server
@@ -12,15 +13,15 @@ __all__ = ("User",)
 
 
 class User(protocol.Protocol):
-    recvd: str
     server: Server
+    recvd: str
+    ipAddress: str
     session: Optional[Session]
 
     __slots__ = tuple(__annotations__)
 
     def __init__(self):
         self.recvd = str()
-
         self.session = None
 
     def getServerMode(self) -> str:
@@ -33,6 +34,7 @@ class User(protocol.Protocol):
 
     def connectionMade(self):
         self.server = self.factory
+        self.ipAddress = self.transport.getPeer().host
 
     def connectionLost(self, reason):
         if self.session is not None:
@@ -78,6 +80,10 @@ class User(protocol.Protocol):
             print(request, xmldict)
 
         elif request == "LOGIN":
+            if self.session is not None:
+                self.transport.loseConnection()
+                return
+
             name = xmldict["name"]
 
             if self.server.getUser(name):

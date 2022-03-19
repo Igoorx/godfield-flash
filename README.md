@@ -13,7 +13,8 @@ This server emulator is not nearly perfect, but it works! (as shown in the video
 
 - The artifacts distribution may not be not how it should be (needs research).
 - Bots are not very smart, they just thrown the artifacts that he can use at the moment. (And was programmed to)
-- FOG effect doesn't get removed even if you remove the harm.
+- The "Fog" curse isn't implemented correctly yet.
+- The "Illusion" curse isn't implemented correctly yet.
 - The client backup may not be complete.
   - The backup was done by playing the game and downloading what was requested by the game, so maybe I didn't get everything, and I surely didn't get files from disabled game modes.
 

@@ -248,6 +248,8 @@ class Bot(Player):
     def removeExcessMagic(self, items):
         mpCost = 0
         for item in list(items):
+            if item.attackExtra == "MAGICAL":
+                mpCost = 99
             if item.type == "MAGIC":
                 mpCost += item.subValue
                 if mpCost > self.mp:
@@ -275,6 +277,7 @@ class Bot(Player):
         random.shuffle(self.magics) # TODO: don't do this in this way, maybe use a random access iterator or do a copy or smth
         pieces = []
         lastResortAttack = None
+        specialLastResortAttack = None
 
         for id in self.magics:
             item = self.server.itemManager.getItem(id)
@@ -388,6 +391,9 @@ class Bot(Player):
 
             if item.type == "WEAPON":
                 if item.attackKind == "ATK":
+                    if specialLastResortAttack is None:
+                        specialLastResortAttack = target, [item]
+
                     if item.attackExtra == "PESTLE":
                         return target, [item]
 
@@ -503,6 +509,10 @@ class Bot(Player):
         if lastResortAttack is not None:
             # We can't do anything else, so we can only resort to this
             return lastResortAttack
+
+        if specialLastResortAttack is not None:
+            # We LITERALLY can't do anything else, so we can only resort to this
+            return specialLastResortAttack
 
         return target, [self.server.itemManager.getItem(0)]
 

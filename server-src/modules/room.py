@@ -18,6 +18,7 @@ __all__ = ("Room",)
 
 class Room:
     server: Server
+    serverMode: str
     id: int
     name: str
     password: str
@@ -44,6 +45,7 @@ class Room:
 
     def __init__(self, server: Server, name: str, password: str = ""):
         self.server = server
+        self.serverMode = str()
 
         self.id = int()
         self.name = name
@@ -88,29 +90,32 @@ class Room:
                 return player
         return None
 
-    def getRandomAlive(self, me: Optional[Player] = None):
+    def getRandomAlive(self, me: Optional[Player] = None) -> Player:
         return random.choice([player for player in self.players if not player.dead and player != me])
 
-    def getRandomAliveEnemy(self, me: Player):
+    def getRandomAliveEnemy(self, me: Player) -> Player:
         return random.choice([player for player in self.players if not player.dead and player.isEnemy(me)])
 
-    def getRandomAliveAlly(self, me: Player, exceptMe: bool = True):
+    def getRandomAliveAlly(self, me: Player, exceptMe: bool = True) -> Player:
         return random.choice([player for player in self.players if not player.dead and (not exceptMe or player != me) and not player.isEnemy(me)])
 
-    def getAliveCount(self):
+    def getAliveCount(self) -> int:
         return sum(not player.dead for player in self.players)
 
-    def getAliveTeams(self):
+    def getAliveTeams(self) -> list[str]:
         aliveTeams = []
         for player in self.players:
             if not player.dead and player.team not in aliveTeams:
                 aliveTeams.append(player.team)
         return aliveTeams
 
-    def getTeamsAliveCount(self):
+    def getTeamsAliveCount(self) -> int:
         return len(self.getAliveTeams())
 
-    def checkEndGame(self):
+    def areEnemiesAlive(self, me: Player) -> bool:
+        return any(player.isEnemy(me) and not player.dead for player in self.players)
+
+    def checkEndGame(self) -> bool:
         getAliveCount = self.getTeamsAliveCount if self.teamPlay else self.getAliveCount
         return getAliveCount() <= 1
 
@@ -238,6 +243,10 @@ class Room:
         self.server.lobbyBroadXml(builder)
 
     def enterGame(self, user: Session, team: str):
+        assert team in ["SINGLE", "TEAM1", "TEAM2", "TEAM3", "TEAM4"]
+        if self.playing:
+            return
+
         player = self.getPlayer(user.name)
 
         if len(self.players) == 0:
@@ -303,7 +312,10 @@ class Room:
             builder.roomID(str(self.id))
             self.server.lobbyBroadXml(builder)
 
-    def playerReady(self, playerName):
+    def playerReady(self, playerName: str):
+        if self.playing:
+            return
+
         builder = XMLBuilder("ADD_PLAYER")
         bPlayer = builder.player
         bPlayer.name(playerName)
@@ -321,6 +333,8 @@ class Room:
 
     def startGame(self):
         assert len(self.players) > 0, "StartGame called without players."
+        if self.playing:
+            return
         
         self.inningCount = -1
         self.playing = True
@@ -344,6 +358,7 @@ class Room:
         self.nextInning()
 
     def endGame(self):
+        self.playing = False
         self.ended = True
 
         builder = XMLBuilder("END_GAME")
@@ -359,7 +374,7 @@ class Room:
         builder = XMLBuilder("RESET_ATTACK_ORDER")
         self.broadXml(builder)
 
-    def selectNewAttacker(self):
+    def selectNewAttacker(self) -> Player:
         self.attackOrder = (self.attackOrder + 1) % len(self.players)
         if self.attackOrder == 0:
             self.resetAttackOrder()
@@ -442,7 +457,7 @@ class Room:
                     if self.turn.attacker.hp <= 0:
                         return self.beforeEndInning()
 
-        if not self.handledAssistantThisTurn:
+        if not self.handledAssistantThisTurn and not self.checkEndGame():
             self.handledAssistantThisTurn = True
             for player in self.players:
                 if player.dead or not player.assistantType or not player.isEnemy(self.turn.attacker):
@@ -457,7 +472,7 @@ class Room:
                         target = self.getRandomAliveEnemy(player)
                     elif (item.attackKind == "INCREASE_MP" and not item.isAtkHarm()) or item.attackKind in ["INCREASE_HP", "INCREASE_YEN", "REMOVE_LOWER_HARMS", "REMOVE_ALL_HARMS", "ADD_ITEM", "SET_ASSISTANT"]:
                         target = self.getRandomAliveAlly(player, False)
-                    
+                        
                     newAttack = AttackData(player, target, [item])
                     self.turn.queueAttack(newAttack, True)
                     
@@ -514,7 +529,7 @@ class Room:
             # Player input is required to proceed.
             break
         
-        if self.turn.attacker.session is not None and self.turn.attacker.session.user.getServerMode() != "TRAINING":
+        if self.turn.attacker.session is not None and self.serverMode != "TRAINING":
             self.timeoutTimer = reactor.callLater(60 * len(self.players), self.turn.attacker.session.user.transport.loseConnection) # type: ignore
 
 
