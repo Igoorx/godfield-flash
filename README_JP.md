@@ -43,7 +43,7 @@ https://user-images.githubusercontent.com/14041768/159081100-ff837b56-2b9d-4c80-
 
 <i>注意：後で削除してください。そうしないと、もう公式の「ゴッドフィールド」に到達できなくなります。</i>
 
-その後、`client-files` フォルダにある `webserver.py` と `server-src` フォルダにある `server.py` を実行します。
+その後、`client-files` フォルダ内の python スクリプト `webserver.py` を実行し、コマンドライン `server.py ANY JP` で `server-src` フォルダ内の python スクリプト `server.py` を実行します。
 
 これでゲームを開く準備ができました! Flashをサポートしているブラウザで、`http://www.godfield.net/en.html`というリンクを開くだけです。あるいは、["Flash Projector"](https://fpdownload.macromedia.com/pub/flashplayer/updaters/32/flashplayer_32_sa.exe)を使って、CTRL+Oを押すと、ウィンドウが表示されます。このウィンドウで、`Location`テキストフィールドに `http://www.godfield.net/game/godfield.swf?language=ja&valid=1` を入力して、`OK`ボタンを押すだけでよいのです。
 
