@@ -29,8 +29,7 @@ https://user-images.githubusercontent.com/14041768/159081100-ff837b56-2b9d-4c80-
 
 ## 迅速なセットアップ
 
-ゲームに参加するには、`static.godfield.net`と`www.godfield.net`フォルダの両方の内容を持つポート80で動作するWebサーバーが必要です。Webサーバーのセットアップに助けが必要な場合やそれが何かさえ分からない場合、[ここをクリックして、これはきっとあなたの助けになるでしょう。](https://stackoverflow.com/questions/45584453/how-to-create-a-simple-http-webserver-in-python). (PORTは必ず80に変更してください)
-その後、hostsファイルに以下の行を追加する必要があります:
+まず、以下の行を `hosts` ファイルに追加する必要があります。
 
 ```
 127.0.0.1 www.godfield.net
@@ -42,7 +41,11 @@ https://user-images.githubusercontent.com/14041768/159081100-ff837b56-2b9d-4c80-
 127.0.0.1 freefightprivate.godfield.net
 ```
 
-それを使って、pythonでサーバーエミュレータを実行し、まだFlashをサポートしているブラウザでリンク `http://www.godfield.net/index.html` を開くだけです。あるいは、["Flash Projector"](https://fpdownload.macromedia.com/pub/flashplayer/updaters/32/flashplayer_32_sa.exe)を使って、CTRL+Oを押すと、ウィンドウが表示されます。このウィンドウで、`Location`テキストフィールドに `http://www.godfield.net/game/godfield.swf?language=ja&valid=1` を入力して、`OK`ボタンを押すだけでよいのです。
+<i>注意：後で削除してください。そうしないと、もう公式の「ゴッドフィールド」に到達できなくなります。</i>
+
+その後、`client-files` フォルダにある `webserver.py` と `server-src` フォルダにある `server.py` を実行します。
+
+これでゲームを開く準備ができました! Flashをサポートしているブラウザで、`http://www.godfield.net/en.html`というリンクを開くだけです。あるいは、["Flash Projector"](https://fpdownload.macromedia.com/pub/flashplayer/updaters/32/flashplayer_32_sa.exe)を使って、CTRL+Oを押すと、ウィンドウが表示されます。このウィンドウで、`Location`テキストフィールドに `http://www.godfield.net/game/godfield.swf?language=ja&valid=1` を入力して、`OK`ボタンを押すだけでよいのです。
 
 ## 備考
 

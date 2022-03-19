@@ -26,13 +26,12 @@ To run the server emulator, you will need <b>Python 3.9+</b>. You can install al
 
 ## Flash is dead! Now what?
 
-This repository contains the old GodField that was written in Flash, however flash isn't supported by most browsers anymore, but don't worry, it is still possible to run GodField if you use some browser that still has support for it or if you run the game's swf directly via Flash Projector.
+This repository contains the old God Field that was written in Flash, however flash isn't supported by most browsers anymore, but don't worry, it is still possible to run God Field if you use some browser that still has support for it or if you run the game's swf directly via Flash Projector.
 [You can download the Flash Projector here.](https://fpdownload.macromedia.com/pub/flashplayer/updaters/32/flashplayer_32_sa.exe)
 
 ## Quick set-up
 
-To get into the game, you need a webserver running in port 80 with both `static.godfield.net` and `www.godfield.net` folder contents, if you need help to set-up a webserver or do not even knows what it is, [click here, this surely will help you](https://stackoverflow.com/questions/45584453/how-to-create-a-simple-http-webserver-in-python). (Make sure to change the PORT to 80)
-After, you need to add these lines to your hosts file:
+First you need to add these lines to your `hosts` file:
 
 ```
 127.0.0.1 www.godfield.net
@@ -44,7 +43,11 @@ After, you need to add these lines to your hosts file:
 127.0.0.1 freefightprivate.godfield.net
 ```
 
-With that, just run the server emulator in python and then open the link `http://www.godfield.net/en.html` in a browser that still supports Flash. Alternatively you can use the [Flash Projector](https://fpdownload.macromedia.com/pub/flashplayer/updaters/32/flashplayer_32_sa.exe), just open it and press CTRL+O, a window should appear, in this window you just have to input `http://www.godfield.net/game/godfield.swf` in the `Location` text field and press the button `OK`.
+<i>Be aware: You should remove them later, otherwise you will not be able to reach the official God Field anymore.</i>
+
+After that, run `webserver.py` from `client-files` folder and `server.py` from `server-src` folder.
+
+You're now ready to open the game! Just open the link `http://www.godfield.net/en.html` in a browser that still supports Flash. Alternatively you can use the [Flash Projector](https://fpdownload.macromedia.com/pub/flashplayer/updaters/32/flashplayer_32_sa.exe), just open it and press CTRL+O, a window should appear, in this window you just have to input `http://www.godfield.net/game/godfield.swf` in the `Location` text field and press the button `OK`.
 
 ## Remarks
 
