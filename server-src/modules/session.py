@@ -236,7 +236,6 @@ class Session:
     @request("ENTER_GAME")
     def enterGameHandler(self, xmldict):
         assert self.room is not None
-        assert self.player is None
 
         team = xmldict.get("team")
         if team is not None:
