@@ -42,7 +42,7 @@ https://user-images.githubusercontent.com/14041768/159081100-ff837b56-2b9d-4c80-
 127.0.0.1 freefightprivate.godfield.net
 ```
 
-それを使って、pythonでサーバーエミュレータを実行し、まだFlashをサポートしているブラウザでリンク `http://www.godfield.net/en.html` を開くだけです。あるいは、["Flash Projector"](https://fpdownload.macromedia.com/pub/flashplayer/updaters/32/flashplayer_32_sa.exe)を使って、CTRL+Oを押すと、ウィンドウが表示されます。このウィンドウで、`Location`テキストフィールドに `http://www.godfield.net/game/godfield.swf` を入力して、`OK`ボタンを押すだけでよいのです。
+それを使って、pythonでサーバーエミュレータを実行し、まだFlashをサポートしているブラウザでリンク `http://www.godfield.net/index.html` を開くだけです。あるいは、["Flash Projector"](https://fpdownload.macromedia.com/pub/flashplayer/updaters/32/flashplayer_32_sa.exe)を使って、CTRL+Oを押すと、ウィンドウが表示されます。このウィンドウで、`Location`テキストフィールドに `http://www.godfield.net/game/godfield.swf?language=ja&valid=1` を入力して、`OK`ボタンを押すだけでよいのです。
 
 ## 備考
 
