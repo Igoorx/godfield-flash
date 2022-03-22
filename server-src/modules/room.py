@@ -6,7 +6,6 @@ if TYPE_CHECKING:
     from modules.session import Session
 from helpers.xmlbuilder import XMLBuilder
 from modules.player import Player
-from modules.bot import Bot
 from modules.turn import TurnHandler
 from modules.attack import AttackData
 
@@ -37,6 +36,7 @@ class Room:
     turn: TurnHandler
     forceNextDeal: Optional[int]
     forceInitialDeal: Optional[list[int]]
+    forceNextAssistant: Optional[str]
     users: list[Session]
     players: list[Player]
     timeoutTimer: Any
@@ -68,6 +68,7 @@ class Room:
 
         self.forceNextDeal = None
         self.forceInitialDeal = None
+        self.forceNextAssistant = None
 
         self.users = list()
         self.players = list()
@@ -159,9 +160,25 @@ class Room:
                     bPlayer.disease(player.disease)
                 for harm in player.harms:
                     bPlayer.harm(harm)
-                # TODO: Assistant
-        # TODO: privatePlayer (regain control after disconnect)
+                if player.assistantType:
+                    bAssistant = bPlayer.assistant
+                    bAssistant.type(player.assistantType)
+                    bAssistant.hp(str(player.assistantHP))
+        
         if self.playing:
+            privPlayer = self.getPlayer(user.name)
+            if privPlayer is not None:
+                bGame.dealCount(str(privPlayer.deal))
+                bPrivPlayer = bGame.privatePlayer
+                bPrivPlayer.time("1475196662616")
+                for item in privPlayer.items:
+                    # TODO: Illusion
+                    bPrivPlayer.item.item(str(item))
+                for idx, item in enumerate(privPlayer.magics):
+                    bAbility = bPrivPlayer.ability
+                    bAbility.item(str(item))
+                    bAbility.abilityIndex(str(idx))
+            
             bAttacker = bGame.attacker
             if self.turn.currentAttack is None:
                 bAttacker.name(str(self.turn.attacker.name))
@@ -183,8 +200,8 @@ class Room:
                     bCommand.decidedValue(str(atkData.decidedValue))
                 if atkData.decidedMystery is not None:
                     builder.mystery(atkData.decidedMystery)
-                if atkData.piece[0].assistantType:
-                    builder.assistantType(atkData.piece[0].assistantType)
+                if atkData.assistantType is not None:
+                    builder.assistantType(atkData.assistantType)
                 bCommand.commander.name(atkData.attacker.name)
                 if not atkData.isAction:
                     bCommand.target.name(atkData.defender.name)
@@ -281,24 +298,18 @@ class Room:
         print("Remove player:", player.name)
 
         if self.playing:
-            bot = Bot(player.name, player.team)
-            bot.server = self.server
-            bot.room = self
-            bot.setFromPlayer(player)
-            self.players[self.players.index(player)] = bot
-            if player in self.attackOrderList:
-                self.attackOrderList[self.attackOrderList.index(player)] = bot
+            player.session = None
+            player.enableAIProcessor()
+            assert player.aiProcessor is not None
 
             endInning = False
             atkData = self.turn.currentAttack
             if atkData is None:
                 if self.turn.attacker == player:
-                    self.turn.attacker = bot
-                    self.turn.queueAttack(bot.onAttackTurn())
+                    self.turn.queueAttack(player.aiProcessor.onAttackTurn())
                     endInning = True
             elif atkData.defender == player:
-                atkData.defender = bot
-                endInning = self.turn.defenderCommand(bot, bot.onDefenseTurn())
+                endInning = self.turn.defenderCommand(player, player.aiProcessor.onDefenseTurn())
             
             if endInning:
                 self.nextInning()
@@ -465,15 +476,34 @@ class Room:
                 
                 if random.randrange(100) < 30:
                     print(f"{player.name} assistant attack!")
-                    item = self.server.itemManager.getProbRandomAssistantItem(player.assistantType)
-                    
+                    piece = [self.server.itemManager.getProbRandomAssistantItem(player.assistantType)]
+
+                    if player.assistantType == "EARTH":
+                        newItem = self.server.itemManager.getProbRandomItems(1)[0]
+                        piece.append(newItem)
+                        if newItem.type != "MAGIC" and newItem.attackKind != "EXCHANGE":
+                            if newItem.attackKind == "SELL":
+                                piece = [newItem, self.server.itemManager.getProbRandomItems(1)[0]]
+                            elif newItem.attackKind in ["ATK", "BUY"]:
+                                piece = [newItem]
+                    elif player.assistantType == "MOON":
+                        newItem = None
+                        # TODO: This should be optimized somehow
+                        while newItem is None or newItem.type != "MAGIC" or newItem.defenseExtra == "FLICK_MAGIC" or newItem.defenseExtra == "BLOCK_WEAPON" or newItem.attackKind == "SET_ASSISTANT":
+                            newItem = self.server.itemManager.getProbRandomItems(1)[0]
+                        if newItem.attackExtra == "WIDE_ATK" or newItem.attackExtra == "DOUBLE_ATK":
+                            piece.append(newItem)
+                        else:
+                            piece = [newItem]
+                                
                     target = player
-                    if (item.attackKind == "ATK" and item.hitRate == 0) or item.attackKind in ["SELL", "BUY", "ABSORB_YEN", "ADD_HARM", "REMOVE_ITEMS", "REMOVE_ABILITIES"]:
+                    if (piece[0].attackKind == "ATK" and piece[0].hitRate == 0) or piece[0].attackKind in ["SELL", "BUY", "ABSORB_YEN", "ADD_HARM", "REMOVE_ITEMS", "REMOVE_ABILITIES"]:
                         target = self.getRandomAliveEnemy(player)
-                    elif (item.attackKind == "INCREASE_MP" and not item.isAtkHarm()) or item.attackKind in ["INCREASE_HP", "INCREASE_YEN", "REMOVE_LOWER_HARMS", "REMOVE_ALL_HARMS", "ADD_ITEM", "SET_ASSISTANT"]:
+                    elif (piece[0].attackKind == "INCREASE_MP" and not piece[0].isAtkHarm()) or piece[0].attackKind in ["INCREASE_HP", "INCREASE_YEN", "REMOVE_LOWER_HARMS", "REMOVE_ALL_HARMS", "ADD_ITEM", "SET_ASSISTANT"]:
                         target = self.getRandomAliveAlly(player, False)
                         
-                    newAttack = AttackData(player, target, [item])
+                    newAttack = AttackData(player, target, piece)
+                    newAttack.assistantType = player.assistantType
                     self.turn.queueAttack(newAttack, True)
                     
             return self.turn.attackQueue.empty()
@@ -522,8 +552,8 @@ class Room:
 
             self.startInning()
             
-            if isinstance(self.turn.attacker, Bot):
-                self.turn.queueAttack(self.turn.attacker.onAttackTurn())
+            if self.turn.attacker.aiProcessor is not None:
+                self.turn.queueAttack(self.turn.attacker.aiProcessor.onAttackTurn())
                 continue
             
             # Player input is required to proceed.

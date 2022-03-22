@@ -21,6 +21,7 @@ class AttackData:
     piece: list[Item]
     abilityIndex: Optional[int]
     mortarId: Optional[int]
+    assistantType: Optional[str]
     decidedValue: Optional[int]
     decidedHP: Optional[int]
     decidedMystery: Optional[str]
@@ -47,6 +48,7 @@ class AttackData:
 
         self.abilityIndex = None
         self.mortarId = None
+        self.assistantType = None
 
         self.decidedValue = None
         self.decidedHP = None
@@ -73,6 +75,7 @@ class AttackData:
 
         clone.abilityIndex = self.abilityIndex
         clone.mortarId = self.mortarId
+        clone.assistantType = self.assistantType
 
         clone.decidedValue = self.decidedValue
         clone.decidedHP = self.decidedHP

@@ -1,12 +1,10 @@
 from __future__ import annotations
-from http import server
 from typing import TYPE_CHECKING, Optional
 if TYPE_CHECKING:
     from server import Server
     from modules.user import User
     from modules.room import Room
 from modules.player import Player
-from modules.bot import Bot
 from helpers.xmlbuilder import XMLBuilder
 
 import random
@@ -66,8 +64,17 @@ class Session:
             self.gotoTraining()
             self.server.addUser(self)
         elif serverMode == "FREE_FIGHT":
-            # TODO: If player is reconnecting, return him to the match where he was before
-            self.gotoLobby()
+            for room in self.server.rooms.values():
+                privPlayer = room.getPlayer(self.name)
+                if room.playing and privPlayer is not None:
+                    self.player = privPlayer
+                    self.player.session = self
+                    self.player.disableAIProcessor()
+                    self.room = room
+                    self.room.addUser(self)
+                    break
+            if self.room is None:
+                self.gotoLobby()
             self.server.addUser(self)
         else:
             raise Exception("Unsupported server mode")
@@ -89,11 +96,12 @@ class Session:
 
         botNames = ["Princess Kaguya", "Sinbad", "Odin", "Santa Claus", "Robin Hood"]
         for _ in range(3):
-            b = Bot(random.choice(botNames), "SINGLE")
-            b.server = self.server
-            b.room = self.room
-            b.ready = True
-            self.room.players.append(b)
+            player = Player(None, random.choice(botNames), "SINGLE")
+            player.server = self.server
+            player.room = self.room
+            player.ready = True
+            player.enableAIProcessor()
+            self.room.players.append(player)
 
         self.room.addUser(self)
         self.room.startGame()
@@ -203,29 +211,33 @@ class Session:
         elif comment.startswith("fid"):
             self.room.forceInitialDeal = list(map(int, args[0].split("+"))) if len(args) > 0 else None
 
+        elif comment.startswith("fna") and len(args) > 0:
+            self.room.forceNextAssistant = args[0]
+
         elif comment.startswith("newbot") and not self.room.playing:
             count = int(args[0]) if len(args) > 0 else 1
             team = args[1].upper() if len(args) > 1 else "SINGLE"
             if len(self.room.players) == 0: # TODO: Move this to room class
                 self.room.teamPlay = team != "SINGLE"
             for _ in range(count):
-                b = Bot(''.join(__import__("random").choice(__import__("string").ascii_uppercase + __import__("string").digits) for _ in range(12)), team)
-                b.server = self.server
-                self.room.players.append(b)
-                b.room = self.room
-                b.ready = True
+                player = Player(None, ''.join(__import__("random").choice(__import__("string").ascii_uppercase + __import__("string").digits) for _ in range(12)), team)
+                player.server = self.server
+                player.room = self.room
+                player.ready = True
+                player.enableAIProcessor()
+                self.room.players.append(player)
 
                 # TODO: Move this to room class
                 builder = XMLBuilder("ADD_PLAYER")
                 bPlayer = builder.player
-                bPlayer.name(b.name)
-                bPlayer.team(b.team)
+                bPlayer.name(player.name)
+                bPlayer.team(player.team)
                 self.room.broadXml(builder)
 
                 # Set as ready (It needs to be a separate xml)
                 builder = XMLBuilder("ADD_PLAYER")
                 bPlayer = builder.player
-                bPlayer.name(b.name)
+                bPlayer.name(player.name)
                 bPlayer.isReady
                 self.room.broadXml(builder)
 

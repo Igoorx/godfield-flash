@@ -1,12 +1,17 @@
+from __future__ import annotations
+from typing import TYPE_CHECKING, Optional
+if TYPE_CHECKING:
+    from server import Server
+    from modules.room import Room
+    from modules.player import Player
+    from modules.item import Item
 from dataclasses import dataclass
-from modules.player import Player
 from modules.attack import AttackData
-from modules.item import Item
 
 from typing import Optional
 import random
 
-__all__ = ("Bot",)
+__all__ = ("AIProcessor",)
 
 
 @dataclass
@@ -14,16 +19,25 @@ class EnemyStats:
     lastHP: Optional[int] = None
     damageCombo: int = 0
 
-class Bot(Player):
-    def __init__(self, name, team):
-        Player.__init__(self, None, name, team)
+class AIProcessor:
+    player: Player
+    room: Room
+    server: Server
+    enemyStats: dict[str, EnemyStats]
+    possiblyDefenceless: list[Player]
 
+    __slots__ = tuple(__annotations__)
+
+    def __init__(self, player: Player):
+        self.player = player
+        self.room = player.room
+        self.server = player.server
         self.enemyStats = dict()
         self.possiblyDefenceless = list()
 
     def checkEnemyStats(self):
         for player in self.room.players:
-            if not player.isEnemy(self):
+            if not player.isEnemy(self.player):
                 continue
 
             if player.dead:
@@ -56,31 +70,31 @@ class Bot(Player):
 
         print(f"Enemy Stats: {self.enemyStats}")
 
-    def getItemByAK(self, kind):
-        for id in self.items:
+    def getItemByAK(self, kind: str) -> Optional[Item]:
+        for id in self.player.items:
             item = self.server.itemManager.getItem(id)
 
-            if item.type == "MAGIC" and self.mp < item.subValue:
+            if item.type == "MAGIC" and self.player.mp < item.subValue:
                 continue
             if item.attackKind == kind:
                 return item
         return None
 
-    def getItemsByAE(self, extra, attr = None):
+    def getItemsByAE(self, extra: str, attr: Optional[str] = None) -> list[Item]:
         items = []
-        for id in self.items:
+        for id in self.player.items:
             item = self.server.itemManager.getItem(id)
 
-            if item.type == "MAGIC" and self.mp < item.subValue:
+            if item.type == "MAGIC" and self.player.mp < item.subValue:
                 continue
             if attr is not None and item.attribute != attr:
                 continue
             if item.attackExtra == extra:
                 items.append(item)
-        for id in self.magics:
+        for id in self.player.magics:
             item = self.server.itemManager.getItem(id)
             
-            if self.mp < item.subValue:
+            if self.player.mp < item.subValue:
                 continue
             if attr is not None and item.attribute != attr:
                 continue
@@ -88,7 +102,7 @@ class Bot(Player):
                 items.append(item)
         return items
 
-    def getItemsDamage(self, items):
+    def getItemsDamage(self, items: list[Item]) -> int:
         damage = 0
         for item in items:
             if item.attackExtra == "DOUBLE_ATK":
@@ -97,13 +111,13 @@ class Bot(Player):
                 damage += item.getAtk()
         return damage
 
-    def getDefenseItems(self, forAttribute):
+    def getDefenseItems(self, forAttribute: str) -> list[Item]:
         items = []
-        for id in self.items:
+        for id in self.player.items:
             item = self.server.itemManager.getItem(id)
 
             if item.defenseKind == "DFS":
-                if item.type == "MAGIC" and self.mp < item.subValue:
+                if item.type == "MAGIC" and self.player.mp < item.subValue:
                     continue
                 if forAttribute == "FIRE" and item.attribute not in ["WATER", "LIGHT"]:
                     continue
@@ -116,10 +130,10 @@ class Bot(Player):
                 elif forAttribute == "LIGHT" and item.attribute not in ["DARK"]:
                     continue
                 items.append(item)
-        for id in self.magics:
+        for id in self.player.magics:
             item = self.server.itemManager.getItem(id)
 
-            if self.mp < item.subValue:
+            if self.player.mp < item.subValue:
                 continue
             
             if item.defenseKind == "DFS":
@@ -136,9 +150,9 @@ class Bot(Player):
                 items.append(item)
         return items
 
-    def getCounterRings(self, forAttribute):
+    def getCounterRings(self, forAttribute: str) -> list[Item]:
         items = []
-        for id in self.items:
+        for id in self.player.items:
             item = self.server.itemManager.getItem(id)
 
             if item.defenseKind == "COUNTER":
@@ -155,8 +169,8 @@ class Bot(Player):
                 items.append(item)
         return items
 
-    def getCounterItem(self, forAttribute, counter, magic, weapon):
-        for id in self.items:
+    def getCounterItem(self, forAttribute: Optional[str], counter: bool, magic: bool, weapon: bool) -> Optional[Item]:
+        for id in self.player.items:
             item = self.server.itemManager.getItem(id)
 
             if "REFLECT" in item.defenseExtra or\
@@ -165,7 +179,7 @@ class Bot(Player):
                 if ("MAGIC" in item.defenseExtra and not magic) or\
                    ("WEAPON" in item.defenseExtra and not weapon):
                     continue
-                if item.type == "MAGIC" and self.mp < item.subValue:
+                if item.type == "MAGIC" and self.player.mp < item.subValue:
                     continue
                 if item.defenseExtra == "REFLECT_ANY":
                     return item
@@ -184,10 +198,10 @@ class Bot(Player):
                 elif forAttribute == "DARK" and item.attribute not in ["LIGHT"]:
                     continue
                 return item
-        for id in self.magics:
+        for id in self.player.magics:
             item = self.server.itemManager.getItem(id)
 
-            if self.mp < item.subValue:
+            if self.player.mp < item.subValue:
                 continue
 
             if "REFLECT" in item.defenseExtra or\
@@ -213,8 +227,9 @@ class Bot(Player):
                 elif forAttribute == "DARK" and item.attribute not in ["LIGHT"]:
                     continue
                 return item
+        return None
 
-    def checkIsGood(self, item):
+    def checkIsGood(self, item: Item) -> bool:
         # Magics
         if item.type == "MAGIC":
             return True
@@ -233,30 +248,30 @@ class Bot(Player):
 
         return False
 
-    def getMaxMPForMagic(self):
+    def getMaxMPForMagic(self) -> int:
         maxMP = 0
-        for id in self.magics:
+        for id in self.player.magics:
             item = self.server.itemManager.getItem(id)
             maxMP = max(item.subValue, maxMP)
-        for id in self.items:
+        for id in self.player.items:
             item = self.server.itemManager.getItem(id)
             if item.type == "MAGIC":
                 maxMP = max(item.subValue, maxMP)
         return maxMP
 
     # Kind of a hack to avoid multiple magics surpassing the mp limit
-    def removeExcessMagic(self, items):
+    def removeExcessMagic(self, items: list[Item]):
         mpCost = 0
         for item in list(items):
             if item.attackExtra == "MAGICAL":
                 mpCost = 99
             if item.type == "MAGIC":
                 mpCost += item.subValue
-                if mpCost > self.mp:
+                if mpCost > self.player.mp:
                     items.remove(item)
 
     def onAttackTurn(self) -> AttackData:
-        return AttackData(self, *self.buildAttack())
+        return AttackData(self.player, *self.buildAttack())
 
     def buildAttack(self) -> tuple[Player, list[Item]]:
         # TODO: Build weighted list with all attack possibilities
@@ -267,22 +282,22 @@ class Bot(Player):
 
         target = None
         if len(self.possiblyDefenceless) == 0:
-            target = self.room.getRandomAliveEnemy(self)
+            target = self.room.getRandomAliveEnemy(self.player)
         else:
             print("Bot targetting possibly defenceless player.")
             target = random.choice(self.possiblyDefenceless)
         print("Bot target:", target)
         
-        random.shuffle(self.items) # TODO: don't do this in this way, maybe use a random access iterator or do a copy or smth
-        random.shuffle(self.magics) # TODO: don't do this in this way, maybe use a random access iterator or do a copy or smth
+        random.shuffle(self.player.items) # TODO: don't do this in this way, maybe use a random access iterator or do a copy or smth
+        random.shuffle(self.player.magics) # TODO: don't do this in this way, maybe use a random access iterator or do a copy or smth
         pieces = []
         lastResortAttack = None
         specialLastResortAttack = None
 
-        for id in self.magics:
+        for id in self.player.magics:
             item = self.server.itemManager.getItem(id)
 
-            if self.mp < item.subValue:
+            if self.player.mp < item.subValue:
                 continue
 
             if item.attackKind in ["ATK", "ADD_HARM"]:
@@ -296,33 +311,33 @@ class Bot(Player):
                 continue
             
             if item.attackKind == "SET_ASSISTANT":
-                if self.assistantType is not None:
+                if self.player.assistantType is not None:
                     continue
 
             if item.attackKind == "INCREASE_HP":
                 if lastResortAttack is None:
-                    lastResortAttack = self, [item]
-                if self.hp >= 25:
+                    lastResortAttack = self.player, [item]
+                if self.player.hp >= 25:
                     continue
 
             if item.attackKind == "REMOVE_ALL_HARMS":
-                if not self.disease:
+                if not self.player.disease:
                     continue
 
             if item.attackKind == "REMOVE_LOWER_HARMS":
-                if not self.hasLowerDisease():
+                if not self.player.hasLowerDisease():
                     continue
 
-            return self, [item]
+            return self.player, [item]
 
-        for id in self.items:
+        for id in self.player.items:
             item = self.server.itemManager.getItem(id)
 
             if item.type == "SUNDRY":
                 if item.attackKind == "SET_ASSISTANT":
-                    if self.assistantType is not None:
+                    if self.player.assistantType is not None:
                         continue
-                    return self, [item]
+                    return self.player, [item]
 
                 if item.attackExtra in ["INCREASE_ATK", "MAGIC_FREE", "REVIVE", "MORTAR"]:
                     # These items can't be used for direct attacks
@@ -330,29 +345,29 @@ class Bot(Player):
 
                 if item.attackKind == "INCREASE_HP":
                     if lastResortAttack is None:
-                        lastResortAttack = self, [item]
-                    if self.hp >= 25:
+                        lastResortAttack = self.player, [item]
+                    if self.player.hp >= 25:
                         continue
-                    return self, [item]
+                    return self.player, [item]
 
                 if item.attackKind == "INCREASE_MP":
                     if lastResortAttack is None:
-                        lastResortAttack = self, [item]
-                    if self.mp >= self.getMaxMPForMagic():
+                        lastResortAttack = self.player, [item]
+                    if self.player.mp >= self.getMaxMPForMagic():
                         continue
-                    return self, [item]
+                    return self.player, [item]
 
                 if item.attackKind == "REMOVE_ALL_HARMS":
-                    if not self.disease:
+                    if not self.player.disease:
                         # TODO: Use the item if we need inventory space and don't have a remove lower harms item
                         continue
-                    return self, [item]
+                    return self.player, [item]
 
                 if item.attackKind == "REMOVE_LOWER_HARMS":
-                    if not self.hasLowerDisease():
+                    if not self.player.hasLowerDisease():
                         # TODO: Use the item if we need inventory space
                         continue
-                    return self, [item]
+                    return self.player, [item]
 
                 if item.attackKind == "REMOVE_ABILITIES":
                     if len(target.magics) == 0:
@@ -370,11 +385,11 @@ class Bot(Player):
                     # Try to sell the most valuable item that isn't good
                     # TODO: Sell good items if it can be good for us
                     mostValuable = None
-                    for id in self.items:
+                    for id in self.player.items:
                         _item = self.server.itemManager.getItem(id)
                         if self.checkIsGood(_item):
                             continue
-                        if _item not in self.magics and _item != item and (mostValuable is None or mostValuable.price < _item.price):
+                        if _item not in self.player.magics and _item != item and (mostValuable is None or mostValuable.price < _item.price):
                             mostValuable = _item
                     if mostValuable is not None:
                         if mostValuable.price > 10:
@@ -382,7 +397,7 @@ class Bot(Player):
                         if lastResortAttack is None:
                             lastResortAttack = target, [item, mostValuable]
                 elif item.attackKind == "BUY":
-                    if self.yen < 10:
+                    if self.player.yen < 10:
                         continue
                     return target, [item]
                 elif item.attackKind == "EXCHANGE":
@@ -470,7 +485,7 @@ class Bot(Player):
                     return target, pieces
 
             if item.type == "MAGIC":
-                if self.mp < item.subValue:
+                if self.player.mp < item.subValue:
                     continue
 
                 if item.attackKind == "ATK":
@@ -487,24 +502,24 @@ class Bot(Player):
                     continue
                 
                 if item.attackKind == "SET_ASSISTANT":
-                    if self.assistantType is not None:
+                    if self.player.assistantType is not None:
                         continue
 
                 if item.attackKind == "INCREASE_HP":
                     if lastResortAttack is None:
-                        lastResortAttack = self, [item]
-                    if self.hp >= 25:
+                        lastResortAttack = self.player, [item]
+                    if self.player.hp >= 25:
                         continue
 
                 if item.attackKind == "REMOVE_ALL_HARMS":
-                    if not self.disease:
+                    if not self.player.disease:
                         continue
 
                 if item.attackKind == "REMOVE_LOWER_HARMS":
-                    if not self.hasLowerDisease():
+                    if not self.player.hasLowerDisease():
                         continue
 
-                return self, [item]
+                return self.player, [item]
 
         if lastResortAttack is not None:
             # We can't do anything else, so we can only resort to this
@@ -542,7 +557,7 @@ class Bot(Player):
             isBlock = "REFLECT" in counter.defenseExtra or "FLICK" in counter.defenseExtra or "BLOCK" in counter.defenseExtra
 
         attrRemoved = False
-        if "GLORY" not in self.harms and attr and self.hasItem(195) and not protectors and not counter:
+        if "GLORY" not in self.player.harms and attr and self.player.hasItem(195) and not protectors and not counter:
             protectors_ne = self.getDefenseItems("")
             counter_ne = self.getCounterItem("", isCounter, isMagic, isWeapon)
             if protectors_ne or counter_ne:
@@ -570,22 +585,26 @@ class Bot(Player):
                 if damage <= 0:
                     break
 
-            if damage > 2 or (self.hp < 30 and damage > 0):
+            if damage > 2 or (self.player.hp < 30 and damage > 0):
                 rings = self.getCounterRings(attr)
                 defPiece += rings
 
-        if len(ret) == (1 if attrRemoved else 0) and counter and (damage >= 5 or self.hp <= 15 or self.hp <= damage or any(i.isAtkHarm() for i in self.room.turn.currentAttack.piece)):
+        if len(ret) == (1 if attrRemoved else 0) and counter and (damage >= 5 or self.player.hp <= 15 or self.player.hp <= damage or any(i.isAtkHarm() for i in self.room.turn.currentAttack.piece)):
             ret.append(counter)
             return ret
         
         ret += defPiece
 
-        if len(ret) > 1 and "GLORY" in self.harms:
+        if len(ret) > 1 and "GLORY" in self.player.harms:
             ret = ret[1:2] if ret[0].id == 195 else ret[:1]
 
         return ret
 
-    def notify_attack(self, atkData, defPiece, blocked):
+    def getBuyResponse(self, decidedItem) -> bool:
+        # TODO.
+        return True
+
+    def notifyAttack(self, atkData, defPiece, blocked):
         attacker = atkData.attacker
         defender = atkData.defender
 
@@ -596,10 +615,10 @@ class Bot(Player):
         else:
             stats = self.enemyStats[attacker.name]
 
-    def notify_item_discard(self, player, itemId):
+    def notifyItemDiscard(self, player, itemId):
         pass
 
-    def notify_magic_discard(self, player, itemId):
+    def notifyMagicDiscard(self, player, itemId):
         stats = None
         if player.name not in self.enemyStats:
             stats = EnemyStats()

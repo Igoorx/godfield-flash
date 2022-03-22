@@ -7,7 +7,6 @@ if TYPE_CHECKING:
     from modules.player import Player
 from helpers.xmlbuilder import XMLBuilder
 from modules.attack import AttackData
-from modules.bot import Bot
 
 import random
 from queue import Queue
@@ -81,11 +80,12 @@ class TurnHandler:
         assert atkData.piece[0].attackKind == "SELL"
 
         seller, target, piece = atkData.attacker, atkData.defender, atkData.piece[1]
-        assert seller.hasItem(piece.id)
 
-        print("Force buy: ", piece, seller, target)
-        
-        seller.discardItem(piece.id)
+        print("Force buy: ", piece, seller if atkData.assistantType is None else f"<Assistant {atkData.assistantType}>", target)
+
+        if atkData.assistantType is None:
+            assert seller.hasItem(piece.id)
+            seller.discardItem(piece.id)
         seller.increaseYen(piece.price)
         target.dealItem(piece.id, True)
         target.decreaseYen(piece.price)
@@ -256,15 +256,18 @@ class TurnHandler:
                 break
             elif item.attackKind == "SET_ASSISTANT":
                 assert len(atkData.piece) == 1
-                atkData.decidedAssistant = random.choice(["MARS", "MERCURY", "JUPITER", "SATURN", "URANUS", "PLUTO", "NEPTUNE", "VENUS", "EARTH", "MOON"])
+                if self.room.forceNextAssistant is not None:
+                    atkData.decidedAssistant = self.room.forceNextAssistant
+                    self.room.forceNextAssistant = None
+                else:
+                    atkData.decidedAssistant = random.choice(["MARS", "MERCURY", "JUPITER", "SATURN", "URANUS", "PLUTO", "NEPTUNE", "VENUS", "EARTH", "MOON"])
                 break
             elif item.attackKind == "INCREASE_OR_DECREASE_HP":
                 assert len(atkData.piece) == 1
                 atkData.decidedHP = 10 if random.randrange(0, 2) == 1 else -10
                 break
             elif item.attackKind == "ADD_ITEM":
-                assert len(atkData.piece) == 1
-                atkData.piece.append(self.server.itemManager.getProbRandomItems(1)[0])
+                assert len(atkData.piece) == 2
                 break
 
             if item.attackExtra == "INCREASE_ATK":
@@ -280,8 +283,11 @@ class TurnHandler:
                 atkData.chance = 100
                 atkData.attribute = ""
             elif item.attackExtra == "MAGICAL":
-                atkData.damage = atkData.attacker.mp * 2
-                atkData.attacker.mp = 0
+                if atkData.assistantType is None:
+                    atkData.damage = atkData.attacker.mp * 2
+                    atkData.attacker.mp = 0
+                else:
+                    atkData.damage = 200
                 atkData.extra.append(item.attackExtra)
             elif item.attackExtra == "PESTLE":
                 assert len(atkData.piece) == 1
@@ -358,8 +364,9 @@ class TurnHandler:
             atkData = self.currentAttack = self.attackQueue.get()
         missed = False if "DARK_CLOUD" in atkData.defender.harms else 0 < atkData.chance < random.randrange(1, 100 + 1)
 
-        if not atkData.isAction and atkData.defender.dead:
+        if atkData.defender.dead:
             assert atkData.chance != 0 or atkData.isCounter or (atkData.piece and atkData.piece[0].assistantType), f"Dead being attacked! (Data={atkData}, Piece={atkData.piece})"
+            print("Attack skipped because defender is dead.")
             return True
 
         print("Current Attack:", str(atkData))
@@ -398,8 +405,8 @@ class TurnHandler:
                 builder.power(key="HP")(str(atkData.decidedExchange["HP"]))
                 builder.power(key="MP")(str(atkData.decidedExchange["MP"]))
                 builder.power(key="YEN")(str(atkData.decidedExchange["YEN"]))
-            if atkData.piece[0].assistantType:
-                builder.assistantType(atkData.piece[0].assistantType)
+            if atkData.assistantType is not None:
+                builder.assistantType(atkData.assistantType)
             builder.commander.name(atkData.attacker.name)
             if not atkData.isAction:
                 builder.target.name(atkData.defender.name)
@@ -415,10 +422,10 @@ class TurnHandler:
             user.sendXml(builder)
 
         if not missed:
-            if atkData.attacker == atkData.defender or atkData.defender.dead:
+            if atkData.attacker == atkData.defender:
                 return self.defenderCommand(atkData.defender, [])
-            elif isinstance(atkData.defender, Bot):
-                return self.defenderCommand(atkData.defender, atkData.defender.onDefenseTurn())
+            elif atkData.defender.aiProcessor is not None:
+                return self.defenderCommand(atkData.defender, atkData.defender.aiProcessor.onDefenseTurn())
             return False
         
         print("Attack missed!")
@@ -434,13 +441,14 @@ class TurnHandler:
                 assert atkData.attacker == atkData.defender
                 piece = [i for i in atkData.piece if i != item]
                 for item in piece:
+                    if item.attackExtra == "MORTAR":
+                        continue
                     atkData.attacker.discardItem(item.id)
                     for player in self.room.players:
-                        if not isinstance(player, Bot):
-                            continue
                         if player == atkData.attacker:
                             continue
-                        player.notify_item_discard(atkData.attacker, item.id)
+                        if player.aiProcessor is not None:
+                            player.aiProcessor.notifyItemDiscard(atkData.attacker, item.id)
                 break
             elif item.attackKind == "EXCHANGE":
                 assert atkData.attacker == atkData.defender
@@ -465,11 +473,10 @@ class TurnHandler:
                     itemId = atkData.decidedItem.id
                     atkData.defender.discardItem(itemId)
                     for player in self.room.players:
-                        if not isinstance(player, Bot):
-                            continue
                         if player in [atkData.defender, atkData.attacker]:
                             continue
-                        player.notify_item_discard(atkData.defender, itemId)
+                        if player.aiProcessor is not None:
+                            player.aiProcessor.notifyItemDiscard(atkData.defender, itemId)
                 break
             elif item.attackKind == "REMOVE_ABILITIES": # Forget 1 miracle
                 chain = True
@@ -477,11 +484,10 @@ class TurnHandler:
                     itemId = atkData.decidedItem.id
                     atkData.defender.discardMagic(itemId)
                     for player in self.room.players:
-                        if not isinstance(player, Bot):
-                            continue
                         if player in [atkData.defender, atkData.attacker]:
                             continue
-                        player.notify_magic_discard(atkData.defender, itemId)
+                        if player.aiProcessor is not None:
+                            player.aiProcessor.notifyMagicDiscard(atkData.defender, itemId)
                 break
 
             if item.attackKind == "INCREASE_HP":
@@ -647,11 +653,10 @@ class TurnHandler:
         builder = XMLBuilder("COMMAND")
 
         for player in self.room.players:
-            if not isinstance(player, Bot):
-                continue
             if player in [atkData.defender, atkData.attacker]:
                 continue
-            player.notify_attack(atkData, piece, reflected or blocked or flicked)
+            if player.aiProcessor is not None:
+                player.aiProcessor.notifyAttack(atkData, piece, reflected or blocked or flicked)
         
         if not reflected and atkData.decidedItem is not None:
             bPiece = builder.commandChain.piece
@@ -677,8 +682,8 @@ class TurnHandler:
             elif atkData.attacker == atkData.defender:
                 self.inflictDamage(atkData)
                 return True
-            elif isinstance(atkData.defender, Bot):
-                return self.defenderCommand(atkData.defender, atkData.defender.onDefenseTurn())
+            elif atkData.defender.aiProcessor is not None:
+                return self.defenderCommand(atkData.defender, atkData.defender.aiProcessor.onDefenseTurn())
             return False
 
         if atkData.piece[0].attackKind == "SELL":
@@ -688,8 +693,8 @@ class TurnHandler:
             if atkData.decidedItem is None or atkData.attacker.yen < atkData.decidedItem.price:
                 return True
             else:
-                if isinstance(atkData.attacker, Bot):
-                    self.playerBuyResponse(atkData.attacker, True)
+                if atkData.attacker.aiProcessor is not None:
+                    self.playerBuyResponse(atkData.attacker, atkData.attacker.aiProcessor.getBuyResponse(atkData.decidedItem))
                     return True
                 return False
 

@@ -5,6 +5,7 @@ if TYPE_CHECKING:
     from modules.session import Session
     from modules.room import Room
 from helpers.xmlbuilder import XMLBuilder
+from modules.bot import AIProcessor
 
 import random
 
@@ -33,6 +34,7 @@ class Player:
     items: list[int]
     assistantType: str
     assistantHP: int
+    aiProcessor: Optional[AIProcessor]
 
     __slots__ = tuple(__annotations__)
 
@@ -46,33 +48,18 @@ class Player:
             self.server = session.server
             self.room = session.room
 
+        self.aiProcessor = None
+
         self.reset()
 
     def __str__(self):
         return f"<Player {self.name}>"
 
-    def setFromPlayer(self, other: Player):
-        self.ready = other.ready
-        self.dead = other.dead
-        self.lost = other.lost
-        self.finished = other.finished
-        self.waitingAttackTurn = other.waitingAttackTurn
+    def enableAIProcessor(self):
+        self.aiProcessor = AIProcessor(self)
 
-        self.hp = other.hp
-        self.mp = other.mp
-        self.yen = other.yen
-
-        self.disease = other.disease
-        self.worseChance = other.worseChance
-        self.harms = other.harms
-
-        self.deal = other.deal
-
-        self.magics = other.magics
-        self.items = other.items
-
-        self.assistantType = other.assistantType
-        self.assistantHP = other.assistantHP
+    def disableAIProcessor(self):
+        self.aiProcessor = None
 
     def reset(self):
         self.ready = False
@@ -153,7 +140,10 @@ class Player:
         else:
             assert False, f"Unimplemented disease: {self.disease}"
         
-        self.hp = max(0, min(99, self.hp - damage))
+        if damage >= 0:
+            self.takeDamage(damage)
+        else:
+            self.increaseHP(-damage)
         return True
 
     def addHarm(self, harm: str):
@@ -193,8 +183,12 @@ class Player:
         if "GLORY" in self.harms:
             self.harms.remove("GLORY")
 
-    def dealItem(self, id: int, noXml: bool = False):
+    def dealItem(self, id: int, noXml: bool = False) -> bool:
         assert id in self.server.itemManager
+
+        if len(self.items) == 16:
+            print(f"{self.name} deal failed because hand is full")
+            return False
         
         print(f"{self.name} deal {id}")
         self.items.append(id)
@@ -203,6 +197,8 @@ class Player:
             builder = XMLBuilder("DEAL")
             builder.item(str(id))
             self.session.sendXml(builder)
+        
+        return True
 
     def hasItem(self, id: int) -> bool:
         return id in self.items
