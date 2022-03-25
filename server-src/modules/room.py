@@ -39,7 +39,6 @@ class Room:
     forceNextAssistant: Optional[str]
     users: list[Session]
     players: list[Player]
-    timeoutTimer: Any
 
     __slots__ = tuple(__annotations__)
 
@@ -72,8 +71,6 @@ class Room:
 
         self.users = list()
         self.players = list()
-
-        self.timeoutTimer = None
 
     def broadXml(self, xml):
         for user in self.users:
@@ -538,9 +535,6 @@ class Room:
         self.broadXml(builder)
 
     def nextInning(self):
-        if self.timeoutTimer is not None and self.timeoutTimer.active():
-            self.timeoutTimer.cancel()
-
         while True:
             if not self.endInning():
                 # Player input is required to proceed.
@@ -558,8 +552,5 @@ class Room:
             
             # Player input is required to proceed.
             break
-        
-        if self.turn.attacker.session is not None and self.serverMode != "TRAINING":
-            self.timeoutTimer = reactor.callLater(60 * len(self.players), self.turn.attacker.session.user.transport.loseConnection) # type: ignore
 
 

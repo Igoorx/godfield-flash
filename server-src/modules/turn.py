@@ -74,52 +74,6 @@ class TurnHandler:
             
         self.room.broadXml(builder)
 
-    def doSell(self):
-        atkData = self.currentAttack
-        assert atkData is not None
-        assert atkData.piece[0].attackKind == "SELL"
-
-        seller, target, piece = atkData.attacker, atkData.defender, atkData.piece[1]
-
-        print("Force buy: ", piece, seller if atkData.assistantType is None else f"<Assistant {atkData.assistantType}>", target)
-
-        if atkData.assistantType is None:
-            assert seller.hasItem(piece.id)
-            seller.discardItem(piece.id)
-        seller.increaseYen(piece.price)
-        target.dealItem(piece.id, True)
-        target.decreaseYen(piece.price)
-
-    def retargetCurrentAttack(self, attacker: Player, defender: Player):
-        atkData = self.currentAttack
-        assert atkData is not None
-
-        print("Current Attack Retargeted!")
-        print(f"{atkData.attacker} > {attacker}")
-        print(f"{atkData.defender} > {defender}")
-        
-        atkData.attacker = attacker
-        atkData.defender = defender
-        atkData.isRetargeted = True
-        
-        if atkData.piece[0].attackKind == "BUY":
-            assert len(atkData.piece) == 1
-            randomItem = self.server.itemManager.getItem(atkData.defender.getRandomItem())
-            atkData.decidedItem = randomItem if randomItem.id != 0 else None
-            print(f"Decided item for \"{defender.name}\": {atkData.decidedItem}")
-        elif atkData.piece[0].attackKind == "REMOVE_ITEMS":  # Sweep away 1 item
-            assert len(atkData.piece) == 1
-            randomItem = self.server.itemManager.getItem(atkData.defender.getRandomItem())
-            atkData.decidedItem = randomItem if randomItem.id != 0 else None
-            print(f"Decided item for \"{defender.name}\": {atkData.decidedItem}")
-        elif atkData.piece[0].attackKind == "REMOVE_ABILITIES": # Forget 1 miracle
-            assert len(atkData.piece) == 1
-            randomItem = self.server.itemManager.getItem(atkData.defender.getRandomMagic())
-            atkData.decidedItem = randomItem if randomItem.id != 0 else None
-            if atkData.decidedItem is not None:
-                atkData.abilityIndex = defender.magics.index(randomItem.id)
-            print(f"Decided item for \"{defender.name}\": {atkData.decidedItem}")
-
     def queueAttack(self, atkData: AttackData, forced = False):
         # TODO: Maybe divide attack handing in different classes, like CommandChain, AttackCommand, Attribute and etc...
         assert forced or len(atkData.piece) > 0
@@ -182,26 +136,16 @@ class TurnHandler:
             elif item.attackKind == "SELL":
                 assert len(atkData.piece) == 2
                 atkData.decidedValue = atkData.piece[1].price
+                atkData.attacker.discardItem(atkData.piece[1].id)
                 break
             elif item.attackKind == "BUY":
                 assert len(atkData.piece) == 1
-                randomItem = self.server.itemManager.getItem(atkData.defender.getRandomItem())
-                atkData.decidedItem = randomItem if randomItem.id != 0 else None
-                print(f"Decided item for \"{atkData.defender.name}\": {atkData.decidedItem}")
                 break
             elif item.attackKind == "REMOVE_ITEMS":  # Sweep away 1 item
                 assert len(atkData.piece) == 1
-                randomItem = self.server.itemManager.getItem(atkData.defender.getRandomItem())
-                atkData.decidedItem = randomItem if randomItem.id != 0 else None
-                print(f"Decided item for \"{atkData.defender.name}\": {atkData.decidedItem}")
                 break
             elif item.attackKind == "REMOVE_ABILITIES": # Forget 1 miracle
                 assert len(atkData.piece) == 1
-                randomItem = self.server.itemManager.getItem(atkData.defender.getRandomMagic())
-                atkData.decidedItem = randomItem if randomItem.id != 0 else None
-                if atkData.decidedItem is not None:
-                    atkData.abilityIndex = atkData.defender.magics.index(randomItem.id)
-                print(f"Decided item for \"{atkData.defender.name}\": {atkData.decidedItem}")
                 break
 
             if item.attackKind == "MYSTERY":
@@ -369,13 +313,16 @@ class TurnHandler:
             print("Attack skipped because defender is dead.")
             return True
 
-        print("Current Attack:", str(atkData))
-        
+        print(f"Current Attack: {atkData}")
+
+        endInning = missed
+        if atkData.attacker == atkData.defender:
+            endInning = self.defenderCommand(atkData.defender, [])
+
         # We need to build the XML for every user because of the MYSTERY "EARTH"...
         # TODO: maybe this could be improved if we could somehow copy the XMLBuilder
         for user in self.room.users:
             builder = XMLBuilder("COMMAND")
-            #<command><piece><item>1</item><assistantType>VENUS</assistantType></piece><assistantType>VENUS</assistantType><commander><name>Sinbad</name></commander><target><name>Princess Kaguya</name></target></command>
             for item in atkData.piece:
                 bPiece = builder.piece
                 bPiece.item(str(item.id))
@@ -422,16 +369,16 @@ class TurnHandler:
             user.sendXml(builder)
 
         if not missed:
-            if atkData.attacker == atkData.defender:
-                return self.defenderCommand(atkData.defender, [])
-            elif atkData.defender.aiProcessor is not None:
+            if atkData.defender.aiProcessor is not None:
                 return self.defenderCommand(atkData.defender, atkData.defender.aiProcessor.onDefenseTurn())
-            return False
+        else:
+            print("Attack missed!")
         
-        print("Attack missed!")
-        return True
+        return endInning
 
     def inflictDamage(self, atkData: AttackData) -> bool:
+        assert self.currentAttack is not None
+
         hasDamaged = atkData.damage > 0
         chain = False
         print(f"InflictDamage: {atkData}")
@@ -444,11 +391,6 @@ class TurnHandler:
                     if item.attackExtra == "MORTAR":
                         continue
                     atkData.attacker.discardItem(item.id)
-                    for player in self.room.players:
-                        if player == atkData.attacker:
-                            continue
-                        if player.aiProcessor is not None:
-                            player.aiProcessor.notifyItemDiscard(atkData.attacker, item.id)
                 break
             elif item.attackKind == "EXCHANGE":
                 assert atkData.attacker == atkData.defender
@@ -458,30 +400,41 @@ class TurnHandler:
                 atkData.attacker.yen = atkData.decidedExchange["YEN"]
                 break
             elif item.attackKind == "SELL":
+                assert len(atkData.piece) == 2
+                piece = atkData.piece[1]
+                print("Force buy:", piece)
+                atkData.defender.decreaseYen(piece.price)
+                atkData.defender.dealItem(piece.id, True)
+                atkData.attacker.increaseYen(piece.price)
                 break
             elif item.attackKind == "ADD_ITEM":
                 assert len(atkData.piece) == 2
+                print("Force deal item:", atkData.piece[1])
                 atkData.defender.dealItem(atkData.piece[1].id, True)
                 break
 
             elif item.attackKind == "BUY":
                 chain = True
+                randomItem = self.server.itemManager.getItem(atkData.defender.getRandomItem())
+                self.currentAttack.decidedItem = atkData.decidedItem = randomItem if randomItem.id != 0 else None
+                print(f"Decided item for \"{atkData.defender.name}\": {atkData.decidedItem}")
                 break
             elif item.attackKind == "REMOVE_ITEMS":  # Sweep away 1 item
                 chain = True
+                randomItem = self.server.itemManager.getItem(atkData.defender.getRandomItem())
+                self.currentAttack.decidedItem = atkData.decidedItem = randomItem if randomItem.id != 0 else None
+                print(f"Decided item for \"{atkData.defender.name}\": {atkData.decidedItem}")
                 if atkData.decidedItem is not None:
-                    itemId = atkData.decidedItem.id
-                    atkData.defender.discardItem(itemId)
-                    for player in self.room.players:
-                        if player in [atkData.defender, atkData.attacker]:
-                            continue
-                        if player.aiProcessor is not None:
-                            player.aiProcessor.notifyItemDiscard(atkData.defender, itemId)
+                    atkData.defender.discardItem(atkData.decidedItem.id)
                 break
             elif item.attackKind == "REMOVE_ABILITIES": # Forget 1 miracle
                 chain = True
+                randomItem = self.server.itemManager.getItem(atkData.defender.getRandomMagic())
+                self.currentAttack.decidedItem = atkData.decidedItem = randomItem if randomItem.id != 0 else None
+                print(f"Decided item for \"{atkData.defender.name}\": {atkData.decidedItem}")
                 if atkData.decidedItem is not None:
                     itemId = atkData.decidedItem.id
+                    self.currentAttack.abilityIndex = atkData.abilityIndex = atkData.defender.magics.index(itemId)
                     atkData.defender.discardMagic(itemId)
                     for player in self.room.players:
                         if player in [atkData.defender, atkData.attacker]:
@@ -560,11 +513,10 @@ class TurnHandler:
         self.queueAttack(newAttack)
         return True
 
+    # TODO: Maybe divide defense handing in different classes, like CommandChain, DefenseCommand, Attribute and etc...
     def defenderCommand(self, player: Player, piece: list[Item]) -> bool:
-        # TODO: Maybe divide defense handing in different classes, like CommandChain, DefenseCommand, Attribute and etc...
-        #<COMMAND><piece><item>88</item></piece><commander><name>Igoor</name></commander><target><name>Odin</name></target></COMMAND>""" + chr(0))
-        
         assert self.currentAttack is not None
+        
         atkData = self.currentAttack.clone()
         assert player == atkData.defender
 
@@ -574,8 +526,6 @@ class TurnHandler:
 
         isMagicFree = False if len(piece) == 0 else piece[-1].attackExtra == "MAGIC_FREE"
         defenseAttr = None
-
-        #Item 227 e aql martelo, e 50% de chance de acertar mas acerta com 100% quem tem o dangerous mortar
 
         print("New Defender Command!")
         print("Used:", str(piece))
@@ -601,18 +551,21 @@ class TurnHandler:
                (item.defenseExtra == "REFLECT_MAGIC" and atkData.piece[0].type == "MAGIC") or\
                 item.defenseExtra == "REFLECT_ANY":
                 reflected = True
-                self.retargetCurrentAttack(self.currentAttack.defender, self.currentAttack.attacker)
+                print("Current Attack Reflected!")                
+                self.currentAttack.attacker, self.currentAttack.defender = self.currentAttack.defender, self.currentAttack.attacker
                 atkData = self.currentAttack.clone()
                 break
             elif (item.defenseExtra == "FLICK_WEAPON" and atkData.piece[0].type == "WEAPON") or\
                  (item.defenseExtra == "FLICK_MAGIC" and atkData.piece[0].type == "MAGIC"):
                 flicked = True
-                self.retargetCurrentAttack(self.currentAttack.defender, self.room.getRandomAlive())
+                print("Current Attack Flicked!")
+                self.currentAttack.attacker, self.currentAttack.defender = self.currentAttack.defender, self.room.getRandomAlive()
                 atkData = self.currentAttack.clone()
                 break
             elif (item.defenseExtra == "BLOCK_WEAPON" and atkData.piece[0].type == "WEAPON") or\
                  (item.defenseExtra == "BLOCK_MAGIC" and atkData.piece[0].type == "MAGIC"):
                 blocked = True
+                print("Current Attack Blocked!")
                 break
             if item.defenseKind == "DFS":
                 if item.isDefHarm():
@@ -686,10 +639,7 @@ class TurnHandler:
                 return self.defenderCommand(atkData.defender, atkData.defender.aiProcessor.onDefenseTurn())
             return False
 
-        if atkData.piece[0].attackKind == "SELL":
-            self.doSell()
-            return True
-        elif atkData.piece[0].attackKind == "BUY":
+        if atkData.piece[0].attackKind == "BUY":
             if atkData.decidedItem is None or atkData.attacker.yen < atkData.decidedItem.price:
                 return True
             else:

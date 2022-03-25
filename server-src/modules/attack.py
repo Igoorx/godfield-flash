@@ -13,7 +13,6 @@ class AttackData:
     isAction: bool
     isLast: bool
     isCounter: bool
-    isRetargeted: bool
     damage: int
     chance: int
     extra: list[str]
@@ -38,7 +37,6 @@ class AttackData:
         self.isAction = False
         self.isLast = False
         self.isCounter = False
-        self.isRetargeted = False
         
         self.damage = -1
         self.chance = 0
@@ -66,7 +64,6 @@ class AttackData:
         clone.isAction = self.isAction
         clone.isLast = self.isLast
         clone.isCounter = self.isCounter
-        clone.isRetargeted = self.isRetargeted
         
         clone.damage = self.damage
         clone.chance = self.chance

@@ -615,9 +615,6 @@ class AIProcessor:
         else:
             stats = self.enemyStats[attacker.name]
 
-    def notifyItemDiscard(self, player, itemId):
-        pass
-
     def notifyMagicDiscard(self, player, itemId):
         stats = None
         if player.name not in self.enemyStats:
