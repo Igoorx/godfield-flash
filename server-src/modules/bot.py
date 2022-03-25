@@ -418,16 +418,21 @@ class AIProcessor:
                         if lastResortAttack is None:
                             lastResortAttack = target, [item, mostValuable]
                 elif item.attackKind == "BUY":
-                    if specialLastResortAttack is None:
-                        specialLastResortAttack = target, [item]
-                    if self.player.yen < 10:
+                    if self.player.yen == 0:
+                        possibleDiscard.append(item)
+                        continue
+                    elif self.player.yen < 5:
+                        if lastResortAttack is None:
+                            lastResortAttack = target, [item]
                         continue
                     return target, [item]
                 elif item.attackKind == "EXCHANGE":
-                    if lastResortAttack is None:
-                        lastResortAttack = target, [item]
-                    needsHP = self.player.hp <= 20
-                    needsMP = self.player.mp <= 30 and (self.player.magics or any(self.server.itemManager.getItem(id).type == "MAGIC" for item in self.player.items))
+                    possibleDiscard.append(item)
+                    if self.player.hp <= 30 and self.player.mp == 0 and self.player.yen == 0:
+                        # Exchange would result in "No Change"
+                        continue
+                    needsHP = self.player.hp < 20
+                    needsMP = self.player.mp < 30 and (self.player.magics or any(self.server.itemManager.getItem(id).type == "MAGIC" for item in self.player.items))
                     if needsHP or (needsMP and (self.player.yen > 0 or self.player.hp >= 50)):
                         return self.player, [item]
 
