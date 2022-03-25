@@ -56,7 +56,7 @@ class AttackData:
         self.decidedAssistant = None
 
     def __str__(self):
-        return f"Attacker: {self.attacker}, Defender: {self.defender}, Damage: {self.damage}, Extra: {self.extra}, Attribute: {self.attribute}"
+        return f"<AttackData Attacker={self.attacker}{' (assistant)' if self.assistantType else ''}, Defender={self.defender}, Damage={self.damage}, Extra={self.extra}, Attribute={self.attribute}>"
 
     def clone(self) -> AttackData:
         clone = AttackData(self.attacker, self.defender, self.piece)

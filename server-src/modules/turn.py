@@ -136,7 +136,8 @@ class TurnHandler:
             elif item.attackKind == "SELL":
                 assert len(atkData.piece) == 2
                 atkData.decidedValue = atkData.piece[1].price
-                atkData.attacker.discardItem(atkData.piece[1].id)
+                if atkData.assistantType is None:
+                    atkData.attacker.discardItem(atkData.piece[1].id)
                 break
             elif item.attackKind == "BUY":
                 assert len(atkData.piece) == 1
@@ -309,7 +310,7 @@ class TurnHandler:
         missed = False if "DARK_CLOUD" in atkData.defender.harms else 0 < atkData.chance < random.randrange(1, 100 + 1)
 
         if atkData.defender.dead:
-            assert atkData.chance != 0 or atkData.isCounter or (atkData.piece and atkData.piece[0].assistantType), f"Dead being attacked! (Data={atkData}, Piece={atkData.piece})"
+            assert atkData.chance != 0 or atkData.isCounter or atkData.assistantType, f"Dead being attacked! ({atkData}, Piece={atkData.piece})"
             print("Attack skipped because defender is dead.")
             return True
 
@@ -369,7 +370,7 @@ class TurnHandler:
             user.sendXml(builder)
 
         if not missed:
-            if atkData.defender.aiProcessor is not None:
+            if atkData.attacker != atkData.defender and atkData.defender.aiProcessor is not None:
                 return self.defenderCommand(atkData.defender, atkData.defender.aiProcessor.onDefenseTurn())
         else:
             print("Attack missed!")

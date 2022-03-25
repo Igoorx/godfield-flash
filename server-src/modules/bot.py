@@ -271,7 +271,10 @@ class AIProcessor:
                     items.remove(item)
 
     def onAttackTurn(self) -> AttackData:
-        return AttackData(self.player, *self.buildAttack())
+        newAttack = AttackData(self.player, *self.buildAttack())
+        if newAttack.piece[0].attackKind == "EXCHANGE":
+            newAttack.decidedExchange = self.buildExchange()
+        return newAttack
 
     def buildAttack(self) -> tuple[Player, list[Item]]:
         # TODO: Build weighted list with all attack possibilities
@@ -291,13 +294,18 @@ class AIProcessor:
         random.shuffle(self.player.items) # TODO: don't do this in this way, maybe use a random access iterator or do a copy or smth
         random.shuffle(self.player.magics) # TODO: don't do this in this way, maybe use a random access iterator or do a copy or smth
         pieces = []
+        possibleDiscard = []
         lastResortAttack = None
         specialLastResortAttack = None
-
+        
         for id in self.player.magics:
             item = self.server.itemManager.getItem(id)
 
             if self.player.mp < item.subValue:
+                continue
+
+            # Avoid spamming magics with a low hit rate.
+            if 0 < item.hitRate < random.randrange(1, 100 + 1):
                 continue
 
             if item.attackKind in ["ATK", "ADD_HARM"]:
@@ -320,11 +328,21 @@ class AIProcessor:
                 if self.player.hp >= 25:
                     continue
 
+            if item.attackKind == "INCREASE_YEN":
+                if specialLastResortAttack is None:
+                    specialLastResortAttack = self.player, [item]
+                if self.player.yen >= 50:
+                    continue
+
             if item.attackKind == "REMOVE_ALL_HARMS":
+                if specialLastResortAttack is None:
+                    specialLastResortAttack = self.player, [item]
                 if not self.player.disease:
                     continue
 
             if item.attackKind == "REMOVE_LOWER_HARMS":
+                if specialLastResortAttack is None:
+                    specialLastResortAttack = self.player, [item]
                 if not self.player.hasLowerDisease():
                     continue
 
@@ -334,6 +352,9 @@ class AIProcessor:
             item = self.server.itemManager.getItem(id)
 
             if item.type == "SUNDRY":
+                if item.attackExtra not in ["MORTAR", "REMOVE_ABILITIES", "REVIVE"]:
+                    possibleDiscard.append(item)
+
                 if item.attackKind == "SET_ASSISTANT":
                     if self.player.assistantType is not None:
                         continue
@@ -375,7 +396,7 @@ class AIProcessor:
                 
                 return target, [item]
 
-            if item.type == "TRADE":
+            elif item.type == "TRADE":
                 if item.attackKind == "SELL":
                     # Always try to sell mortars when we have one
                     mortar = self.getItemsByAE("MORTAR")
@@ -397,14 +418,20 @@ class AIProcessor:
                         if lastResortAttack is None:
                             lastResortAttack = target, [item, mostValuable]
                 elif item.attackKind == "BUY":
+                    if specialLastResortAttack is None:
+                        specialLastResortAttack = target, [item]
                     if self.player.yen < 10:
                         continue
                     return target, [item]
                 elif item.attackKind == "EXCHANGE":
-                    # TODO: NOT IMPLEMENTED
-                    continue
+                    if lastResortAttack is None:
+                        lastResortAttack = target, [item]
+                    needsHP = self.player.hp <= 20
+                    needsMP = self.player.mp <= 30 and (self.player.magics or any(self.server.itemManager.getItem(id).type == "MAGIC" for item in self.player.items))
+                    if needsHP or (needsMP and (self.player.yen > 0 or self.player.hp >= 50)):
+                        return self.player, [item]
 
-            if item.type == "WEAPON":
+            elif item.type == "WEAPON":
                 if item.attackKind == "ATK":
                     if specialLastResortAttack is None:
                         specialLastResortAttack = target, [item]
@@ -484,7 +511,7 @@ class AIProcessor:
                     pieces.append(item)
                     return target, pieces
 
-            if item.type == "MAGIC":
+            elif item.type == "MAGIC":
                 if self.player.mp < item.subValue:
                     continue
 
@@ -521,15 +548,49 @@ class AIProcessor:
 
                 return self.player, [item]
 
+            elif item.type == "PROTECTOR":
+                if item.defenseExtra != "REFLECT_ANY":
+                    possibleDiscard.append(item)
+
         if lastResortAttack is not None:
             # We can't do anything else, so we can only resort to this
             return lastResortAttack
+
+        if len(self.player.items) == 16 and len(possibleDiscard) != 0:
+            # Discard two items so we can receive new items in the next turn.
+            return self.player, [self.server.itemManager.getItem(1)] + random.sample(possibleDiscard, k = min(2, len(possibleDiscard)))
 
         if specialLastResortAttack is not None:
             # We LITERALLY can't do anything else, so we can only resort to this
             return specialLastResortAttack
 
+        print(f"Bot \"{self.player.name}\" couldn't do anything with it's current items.")
+        print(list(map(self.server.itemManager.getItem, self.player.items)))
+
         return target, [self.server.itemManager.getItem(0)]
+
+    def buildExchange(self) -> dict[str, int]:
+        decidedExchange = {
+            "HP": 0,
+            "MP": 0,
+            "YEN": 0
+        }
+        sum = self.player.hp + self.player.mp + self.player.yen
+
+        decidedExchange["HP"] = 30
+        sum -= 30
+        if sum < 0:
+            decidedExchange["HP"] -= sum * -1
+            return decidedExchange
+
+        decidedExchange["MP"] = 30
+        sum -= 30
+        if sum < 0:
+            decidedExchange["MP"] -= sum * -1
+            return decidedExchange
+
+        decidedExchange["YEN"] = sum
+        return decidedExchange
 
     def onDefenseTurn(self):
         assert(self.room.turn.currentAttack is not None)
