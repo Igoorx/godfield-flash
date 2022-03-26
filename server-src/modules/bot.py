@@ -319,7 +319,7 @@ class AIProcessor:
                 continue
             
             if item.attackKind == "SET_ASSISTANT":
-                if self.player.assistantType is not None:
+                if self.player.assistantType:
                     continue
 
             if item.attackKind == "INCREASE_HP":
@@ -356,7 +356,7 @@ class AIProcessor:
                     possibleDiscard.append(item)
 
                 if item.attackKind == "SET_ASSISTANT":
-                    if self.player.assistantType is not None:
+                    if self.player.assistantType:
                         continue
                     return self.player, [item]
 
@@ -534,7 +534,7 @@ class AIProcessor:
                     continue
                 
                 if item.attackKind == "SET_ASSISTANT":
-                    if self.player.assistantType is not None:
+                    if self.player.assistantType:
                         continue
 
                 if item.attackKind == "INCREASE_HP":
