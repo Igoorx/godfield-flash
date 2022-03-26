@@ -76,11 +76,18 @@ class Room:
         for user in self.users:
             user.sendXml(xml)
 
-    def sendChat(self, sender: str, msg: str):
+    def sendChat(self, sender: str, msg: str, toTeam: str):
         builder = XMLBuilder("CHAT")
         builder.name(sender)
         builder.comment(msg)
-        self.broadXml(builder)
+        if toTeam:
+            builder.toTeam
+            for player in self.players:
+                if player.session is None or player.team != toTeam:
+                    continue
+                player.session.sendXml(builder)
+        else:
+            self.broadXml(builder)
 
     def getPlayer(self, name: str) -> Optional[Player]:
         for player in self.players:
@@ -319,6 +326,24 @@ class Room:
 
             builder.roomID(str(self.id))
             self.server.lobbyBroadXml(builder)
+
+    def shuffleTeam(self):
+        if self.playing or not self.teamPlay:
+            return
+        if len(self.players) in [0, 1, 2, 3, 5, 7]:
+            return
+            
+        # To be honest, I don't know how this should be implemented, the below implementation is just a guess.
+        validTeams = ["TEAM1", "TEAM2", "TEAM3", "TEAM4"]
+        players = list(self.players)
+        random.shuffle(players)
+
+        for idx, player in enumerate(players):
+            assert player.session is not None
+            if idx < len(self.players) / 2:
+                self.enterGame(player.session, validTeams[0])
+            else:
+                self.enterGame(player.session, validTeams[1])
 
     def playerReady(self, playerName: str):
         if self.playing:

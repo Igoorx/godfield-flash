@@ -153,11 +153,12 @@ class Session:
     def chatHandler(self, xmldict):
         assert self.room is not None
 
+        toTeam = "toTeam" in xmldict
         comment = xmldict.get("comment")
         if comment is None or len(comment.strip()) == 0:
             return
 
-        self.room.sendChat(self.name, comment)
+        self.room.sendChat(self.name, comment, self.player.team if toTeam and self.player is not None else "")
         
         if self.user.ipAddress != "127.0.0.1":
             return
@@ -260,6 +261,12 @@ class Session:
 
         self.room.exitGame(self.player)
         self.player = None
+
+    @request("SHUFFLE_TEAM")
+    def shuffleTeamHandler(self, xmldict):
+        assert self.room is not None
+
+        self.room.shuffleTeam()
 
     @request("READY")
     def readyHandler(self, xmldict):
