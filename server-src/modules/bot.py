@@ -594,7 +594,20 @@ class AIProcessor:
             decidedExchange["MP"] -= sum * -1
             return decidedExchange
 
-        decidedExchange["YEN"] = sum
+        decidedExchange["YEN"] = 30
+        sum -= 30
+        if sum < 0:
+            decidedExchange["YEN"] -= sum * -1
+            return decidedExchange
+
+        decidedExchange["HP"] += sum
+        sum = 0
+        if decidedExchange["HP"] > 99:
+            sum = decidedExchange["HP"] - 99
+            decidedExchange["HP"] = 99
+
+        decidedExchange["MP"] += sum
+        assert decidedExchange["MP"] <= 99
         return decidedExchange
 
     def onDefenseTurn(self):

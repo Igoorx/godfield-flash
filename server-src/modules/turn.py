@@ -131,7 +131,7 @@ class TurnHandler:
 
                 sum1 = atkData.decidedExchange["HP"] + atkData.decidedExchange["MP"] + atkData.decidedExchange["YEN"]
                 sum2 = atkData.attacker.hp + atkData.attacker.mp + atkData.attacker.yen
-                assert sum1 == sum2
+                assert sum1 == sum2, str(atkData.decidedExchange)
                 break
             elif item.attackKind == "SELL":
                 assert len(atkData.piece) == 2
