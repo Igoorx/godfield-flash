@@ -1,5 +1,5 @@
 from __future__ import annotations
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING, Optional, Iterator
 if TYPE_CHECKING:
     from server import Server
     from modules.room import Room
@@ -55,7 +55,7 @@ class AIProcessor:
                 stats = self.enemyStats[player.name]
 
             if stats.lastHP is not None:
-                if stats.lastHP > player.hp:
+                if stats.lastHP - player.hp > 2:
                     # Took damage
                     stats.damageCombo += 1
 
@@ -63,7 +63,7 @@ class AIProcessor:
                         # Possibly defenseless
                         self.possiblyDefenceless.append(player)
                 elif stats.lastHP <= player.hp:
-                    # Didn't took damage
+                    # Didn't take damage
                     stats.damageCombo = 0
 
             stats.lastHP = player.hp
@@ -148,7 +148,7 @@ class AIProcessor:
                 elif forAttribute == "LIGHT" and item.attribute not in ["DARK"]:
                     continue
                 items.append(item)
-        return items
+        return sorted(items, key = lambda x: x.getDef())
 
     def getCounterRings(self, forAttribute: str) -> list[Item]:
         items = []
@@ -183,20 +183,21 @@ class AIProcessor:
                     continue
                 if item.defenseExtra == "REFLECT_ANY":
                     return item
-                elif forAttribute is None or counter:
+                if forAttribute is None or counter:
                     continue
-                elif forAttribute == "FIRE" and item.attribute not in ["WATER", "LIGHT"]:
-                    continue
-                elif forAttribute == "WATER" and item.attribute not in ["FIRE", "LIGHT"]:
-                    continue
-                elif forAttribute == "TREE" and item.attribute not in ["SOIL", "LIGHT"]:
-                    continue
-                elif forAttribute == "SOIL" and item.attribute not in ["TREE", "LIGHT"]:
-                    continue
-                elif forAttribute == "LIGHT" and item.attribute not in ["DARK"]:
-                    continue
-                elif forAttribute == "DARK" and item.attribute not in ["LIGHT"]:
-                    continue
+                elif "WEAPON" in item.attribute:
+                    if forAttribute == "FIRE" and item.attribute not in ["WATER", "LIGHT"]:
+                        continue
+                    elif forAttribute == "WATER" and item.attribute not in ["FIRE", "LIGHT"]:
+                        continue
+                    elif forAttribute == "TREE" and item.attribute not in ["SOIL", "LIGHT"]:
+                        continue
+                    elif forAttribute == "SOIL" and item.attribute not in ["TREE", "LIGHT"]:
+                        continue
+                    elif forAttribute == "LIGHT" and item.attribute not in ["DARK"]:
+                        continue
+                    elif forAttribute == "DARK" and item.attribute not in ["LIGHT"]:
+                        continue
                 return item
         for id in self.player.magics:
             item = self.server.itemManager.getItem(id)
@@ -212,20 +213,21 @@ class AIProcessor:
                     continue
                 if item.defenseExtra == "REFLECT_ANY":
                     return item
-                elif forAttribute is None or counter:
+                if forAttribute is None or counter:
                     continue
-                elif forAttribute == "FIRE" and item.attribute not in ["WATER", "LIGHT"]:
-                    continue
-                elif forAttribute == "WATER" and item.attribute not in ["FIRE", "LIGHT"]:
-                    continue
-                elif forAttribute == "TREE" and item.attribute not in ["SOIL", "LIGHT"]:
-                    continue
-                elif forAttribute == "SOIL" and item.attribute not in ["TREE", "LIGHT"]:
-                    continue
-                elif forAttribute == "LIGHT" and item.attribute not in ["DARK"]:
-                    continue
-                elif forAttribute == "DARK" and item.attribute not in ["LIGHT"]:
-                    continue
+                elif "WEAPON" in item.attribute:
+                    if forAttribute == "FIRE" and item.attribute not in ["WATER", "LIGHT"]:
+                        continue
+                    elif forAttribute == "WATER" and item.attribute not in ["FIRE", "LIGHT"]:
+                        continue
+                    elif forAttribute == "TREE" and item.attribute not in ["SOIL", "LIGHT"]:
+                        continue
+                    elif forAttribute == "SOIL" and item.attribute not in ["TREE", "LIGHT"]:
+                        continue
+                    elif forAttribute == "LIGHT" and item.attribute not in ["DARK"]:
+                        continue
+                    elif forAttribute == "DARK" and item.attribute not in ["LIGHT"]:
+                        continue
                 return item
         return None
 
@@ -248,12 +250,12 @@ class AIProcessor:
 
         return False
 
-    def getMaxMPForMagic(self) -> int:
+    def getMaxMPForMagic(self, target: Player) -> int:
         maxMP = 0
-        for id in self.player.magics:
+        for id in target.magics:
             item = self.server.itemManager.getItem(id)
             maxMP = max(item.subValue, maxMP)
-        for id in self.player.items:
+        for id in target.items:
             item = self.server.itemManager.getItem(id)
             if item.type == "MAGIC":
                 maxMP = max(item.subValue, maxMP)
@@ -270,6 +272,21 @@ class AIProcessor:
                 if mpCost > self.player.mp:
                     items.remove(item)
 
+    def getAllies(self) -> Iterator[Player]:
+        yield self.player
+        if self.player.team != "SINGLE":
+            for player in self.room.players:
+                if player != self.player and not player.dead and not player.isEnemy(self.player):
+                    yield player
+
+    def getKillableEnemy(self, item: Item, overrideDamage: Optional[int] = None) -> Player:
+        if not item.attribute:
+            return None
+        for player in self.room.players:
+            if not player.dead and player.hp <= (item.getAtk() if overrideDamage is None else overrideDamage) and player.isEnemy(self.player):
+                return player
+        return None
+
     def onAttackTurn(self) -> AttackData:
         newAttack = AttackData(self.player, *self.buildAttack())
         if newAttack.piece[0].attackKind == "EXCHANGE":
@@ -279,7 +296,6 @@ class AIProcessor:
     def buildAttack(self) -> tuple[Player, list[Item]]:
         # TODO: Build weighted list with all attack possibilities
         # TODO: Better MP Handling
-        # TODO: Help team-mates
 
         self.checkEnemyStats()
 
@@ -308,7 +324,11 @@ class AIProcessor:
             if 0 < item.hitRate < random.randrange(1, 100 + 1):
                 continue
 
-            if item.attackKind in ["ATK", "ADD_HARM"]:
+            if item.attackKind == "ATK":
+                killableEnemy = self.getKillableEnemy(item)
+                return target if killableEnemy is None else killableEnemy, [item]
+
+            if item.attackKind == "ADD_HARM":
                 if target.disease == item.attackExtra or item.attackExtra in target.harms:
                     continue
                 return target, [item]
@@ -319,34 +339,41 @@ class AIProcessor:
                 continue
             
             if item.attackKind == "SET_ASSISTANT":
-                if self.player.assistantType:
-                    continue
+                for ally in self.getAllies():
+                    if ally.assistantType:
+                        continue
+                    return ally, [item]
 
             if item.attackKind == "INCREASE_HP":
                 if lastResortAttack is None:
                     lastResortAttack = self.player, [item]
-                if self.player.hp >= 25:
-                    continue
+                for ally in self.getAllies():
+                    if ally.hp >= 25:
+                        continue
+                    return ally, [item]
 
             if item.attackKind == "INCREASE_YEN":
                 if specialLastResortAttack is None:
                     specialLastResortAttack = self.player, [item]
                 if self.player.yen >= 50:
                     continue
+                return self.player, [item]
 
             if item.attackKind == "REMOVE_ALL_HARMS":
                 if specialLastResortAttack is None:
                     specialLastResortAttack = self.player, [item]
-                if not self.player.disease:
-                    continue
+                for ally in self.getAllies():
+                    if not ally.disease:
+                        continue
+                    return ally, [item]
 
             if item.attackKind == "REMOVE_LOWER_HARMS":
                 if specialLastResortAttack is None:
                     specialLastResortAttack = self.player, [item]
-                if not self.player.hasLowerDisease():
-                    continue
-
-            return self.player, [item]
+                for ally in self.getAllies():
+                    if not ally.hasLowerDisease():
+                        continue
+                    return ally, [item]
 
         for id in self.player.items:
             item = self.server.itemManager.getItem(id)
@@ -355,40 +382,55 @@ class AIProcessor:
                 if item.attackExtra not in ["MORTAR", "REMOVE_ABILITIES", "REVIVE"]:
                     possibleDiscard.append(item)
 
-                if item.attackKind == "SET_ASSISTANT":
-                    if self.player.assistantType:
-                        continue
-                    return self.player, [item]
-
                 if item.attackExtra in ["INCREASE_ATK", "MAGIC_FREE", "REVIVE", "MORTAR"]:
                     # These items can't be used for direct attacks
+                    continue
+
+                if item.attackKind == "SET_ASSISTANT":
+                    for ally in self.getAllies():
+                        if ally.assistantType:
+                            continue
+                        return ally, [item]
+                    # No allies need this item, so skip it for now.
                     continue
 
                 if item.attackKind == "INCREASE_HP":
                     if lastResortAttack is None:
                         lastResortAttack = self.player, [item]
-                    if self.player.hp >= 25:
-                        continue
-                    return self.player, [item]
+                    for ally in self.getAllies():
+                        if ally.hp >= 25:
+                            continue
+                        return ally, [item]
+                    # No allies need this item, so skip it for now.
+                    continue
 
                 if item.attackKind == "INCREASE_MP":
                     if lastResortAttack is None:
                         lastResortAttack = self.player, [item]
-                    if self.player.mp >= self.getMaxMPForMagic():
-                        continue
-                    return self.player, [item]
+                    for ally in self.getAllies():
+                        if ally.mp >= self.getMaxMPForMagic(ally):
+                            continue
+                        return ally, [item]
+                    # No allies need this item, so skip it for now.
+                    continue
 
                 if item.attackKind == "REMOVE_ALL_HARMS":
-                    if not self.player.disease:
-                        # TODO: Use the item if we need inventory space and don't have a remove lower harms item
-                        continue
-                    return self.player, [item]
+                    for ally in self.getAllies():
+                        if not ally.disease:
+                            # TODO: Use the item if we need inventory space and don't have a remove lower harms item
+                            continue
+                        return ally, [item]
+                    # No allies need this item, so skip it for now.
+                    continue
 
                 if item.attackKind == "REMOVE_LOWER_HARMS":
-                    if not self.player.hasLowerDisease():
-                        # TODO: Use the item if we need inventory space
-                        continue
-                    return self.player, [item]
+                    for ally in self.getAllies():
+                        if not ally.hasLowerDisease():
+                            # TODO: Use the item if we need inventory space
+                            continue
+                        return ally, [item]
+                    # No allies need this item, so skip it for now.
+                    continue
 
                 if item.attackKind == "REMOVE_ABILITIES":
                     if len(target.magics) == 0:
@@ -479,7 +521,8 @@ class AIProcessor:
                         if damage > 5 and self.room.getAliveCount() > 2:
                             pieces += self.getItemsByAE("WIDE_ATK")
                         self.removeExcessMagic(pieces)
-                        return target, pieces
+                        killableEnemy = self.getKillableEnemy(item, damage)
+                        return target if killableEnemy is None else killableEnemy, pieces
 
                     if item.attackExtra != "WIDE_ATK" and item.attackExtra != "INCREASE_ATK" and item.attackExtra != "ADD_ATTRIBUTE":
                         pieces.append(item)
@@ -494,7 +537,8 @@ class AIProcessor:
                         if damage > 5 and self.room.getAliveCount() > 2:
                             pieces += self.getItemsByAE("WIDE_ATK")
                         self.removeExcessMagic(pieces)
-                        return target, pieces
+                        killableEnemy = self.getKillableEnemy(item)
+                        return target if killableEnemy is None else killableEnemy, pieces
 
                     if item.attackExtra != "INCREASE_ATK" and item.attackExtra != "ADD_ATTRIBUTE":
                         pieces.append(item)
@@ -505,23 +549,27 @@ class AIProcessor:
                             pieces += self.getItemsByAE("INCREASE_ATK", item.attribute)
                             pieces += self.getItemsByAE("ADD_ATTRIBUTE", item.attribute)
                         self.removeExcessMagic(pieces)
-                        return target, pieces
+                        killableEnemy = self.getKillableEnemy(item)
+                        return target if killableEnemy is None else killableEnemy, pieces
 
                     if item.attackExtra != "ADD_ATTRIBUTE":
                         pieces.append(item)
                         pieces += self.getItemsByAE("ADD_ATTRIBUTE", item.attribute if isSpecial else None)
                         self.removeExcessMagic(pieces)
-                        return target, pieces
+                        killableEnemy = self.getKillableEnemy(item)
+                        return target if killableEnemy is None else killableEnemy, pieces
 
                     pieces.append(item)
-                    return target, pieces
+                    killableEnemy = self.getKillableEnemy(item)
+                    return target if killableEnemy is None else killableEnemy, pieces
 
             elif item.type == "MAGIC":
                 if self.player.mp < item.subValue:
                     continue
 
                 if item.attackKind == "ATK":
-                    return target, [item]
+                    killableEnemy = self.getKillableEnemy(item)
+                    return target if killableEnemy is None else killableEnemy, [item]
 
                 if item.attackKind == "ADD_HARM":
                     if target.disease == item.attackExtra or item.attackExtra in target.harms:
@@ -534,24 +582,30 @@ class AIProcessor:
                     continue
                 
                 if item.attackKind == "SET_ASSISTANT":
-                    if self.player.assistantType:
-                        continue
+                    for ally in self.getAllies():
+                        if ally.assistantType:
+                            continue
+                        return ally, [item]
 
                 if item.attackKind == "INCREASE_HP":
                     if lastResortAttack is None:
                         lastResortAttack = self.player, [item]
-                    if self.player.hp >= 25:
-                        continue
+                    for ally in self.getAllies():
+                        if ally.hp >= 25:
+                            continue
+                        return ally, [item]
 
                 if item.attackKind == "REMOVE_ALL_HARMS":
-                    if not self.player.disease:
-                        continue
+                    for ally in self.getAllies():
+                        if not ally.disease:
+                            continue
+                        return ally, [item]
 
                 if item.attackKind == "REMOVE_LOWER_HARMS":
-                    if not self.player.hasLowerDisease():
-                        continue
-
-                return self.player, [item]
+                    for ally in self.getAllies():
+                        if not ally.hasLowerDisease():
+                            continue
+                        return ally, [item]
 
             elif item.type == "PROTECTOR":
                 if item.defenseExtra != "REFLECT_ANY":
@@ -594,8 +648,8 @@ class AIProcessor:
             decidedExchange["MP"] -= sum * -1
             return decidedExchange
 
-        decidedExchange["YEN"] = 30
-        sum -= 30
+        decidedExchange["YEN"] = 20
+        sum -= 20
         if sum < 0:
             decidedExchange["YEN"] -= sum * -1
             return decidedExchange
@@ -625,15 +679,12 @@ class AIProcessor:
             # TODO: Try to reflect, flick or block
             return ret
 
-        protectors = self.getDefenseItems(attr) if attr is not None else []
         isCounter = self.room.turn.currentAttack.piece[0].defenseKind == "COUNTER"
         isMagic = self.room.turn.currentAttack.piece[0].type == "MAGIC"
         isWeapon = self.room.turn.currentAttack.piece[0].type == "WEAPON"
-        counter = self.getCounterItem(attr, isCounter, isMagic, isWeapon)
 
-        isBlock = False
-        if counter:
-            isBlock = "REFLECT" in counter.defenseExtra or "FLICK" in counter.defenseExtra or "BLOCK" in counter.defenseExtra
+        protectors = self.getDefenseItems(attr) if attr is not None else []
+        counter = self.getCounterItem(attr, isCounter, isMagic, isWeapon)
 
         attrRemoved = False
         if "GLORY" not in self.player.harms and attr and self.player.hasItem(195) and not protectors and not counter:
@@ -658,13 +709,23 @@ class AIProcessor:
         defPiece = []
         if attr is not None:
             for p in protectors:
+                if attr != "DARK" and p.getDef() > 5:
+                    if self.player.hp >= 30 and damage / p.getDef() < 0.5:
+                        # Not worth it.
+                        continue
+                    if self.player.hp > damage and damage / p.getDef() <= 0.4:
+                        # Not worth it.
+                        continue
                 defPiece.append(p)
                 damage -= p.getDef()
 
                 if damage <= 0:
                     break
 
-            if damage > 2 or (self.player.hp < 30 and damage > 0):
+            if self.player.hp <= damage:
+                # We will die, so let's maximize counter efficiency
+                defPiece = self.getCounterRings(attr)
+            elif damage > 2 or (self.player.hp < 30 and damage > 0):
                 rings = self.getCounterRings(attr)
                 defPiece += rings
 
@@ -675,7 +736,7 @@ class AIProcessor:
         ret += defPiece
 
         if len(ret) > 1 and "GLORY" in self.player.harms:
-            ret = ret[1:2] if ret[0].id == 195 else ret[:1]
+            ret = ret[1:2] if ret[0].id == 195 else ret[-1:]
 
         return ret
 
