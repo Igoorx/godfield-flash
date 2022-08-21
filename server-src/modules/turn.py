@@ -542,6 +542,7 @@ class TurnHandler:
 
             if item.id == 195:  # REMOVE_ATTRIBUTE
                 atkData.attribute = ""
+                self.currentAttack.attribute = ""
             
             if defenseAttr is None or defenseAttr == "LIGHT":
                 defenseAttr = item.attribute
@@ -579,8 +580,7 @@ class TurnHandler:
         if not reflected and not flicked and not blocked:
             # Check if that attack could really be defended
             if len(piece) > 0:
-                print(atkData.attribute, defenseAttr)
-                assert atkData.canBeDefendedBy(defenseAttr), "Invalid defense used!"
+                assert atkData.canBeDefendedBy(defenseAttr), f"Invalid defense used! (Attack Attr: {atkData.attribute}, Def Attr: {defenseAttr})"
 
             if atkData.damage > 0:
                 for item in piece:
@@ -631,6 +631,10 @@ class TurnHandler:
         self.room.broadXml(builder)
 
         if reflected or blocked or flicked:
+            # Check if that attack could really be defended
+            if piece[0].defenseExtra != "REFLECT_ANY" and atkData.piece[0].type != "MAGIC":
+                assert atkData.canBeDefendedBy(defenseAttr), f"Invalid defense used! (Attack Attr: {atkData.attribute}, Def Attr: {defenseAttr})"
+
             if blocked or atkData.defender.dead:
                 return True
             elif atkData.attacker == atkData.defender:

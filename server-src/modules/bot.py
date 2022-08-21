@@ -185,7 +185,7 @@ class AIProcessor:
                     return item
                 if forAttribute is None or counter:
                     continue
-                elif "WEAPON" in item.attribute:
+                elif "WEAPON" in item.defenseExtra:
                     if forAttribute == "FIRE" and item.attribute not in ["WATER", "LIGHT"]:
                         continue
                     elif forAttribute == "WATER" and item.attribute not in ["FIRE", "LIGHT"]:
@@ -215,7 +215,7 @@ class AIProcessor:
                     return item
                 if forAttribute is None or counter:
                     continue
-                elif "WEAPON" in item.attribute:
+                elif "WEAPON" in item.defenseExtra:
                     if forAttribute == "FIRE" and item.attribute not in ["WATER", "LIGHT"]:
                         continue
                     elif forAttribute == "WATER" and item.attribute not in ["FIRE", "LIGHT"]:
@@ -735,8 +735,10 @@ class AIProcessor:
         
         ret += defPiece
 
-        if len(ret) > 1 and "GLORY" in self.player.harms:
-            ret = ret[1:2] if ret[0].id == 195 else ret[-1:]
+        if len(ret) == 1 and attr != "DARK" and ret[0].id == 195:
+            ret = []
+        elif len(ret) > 1 and "GLORY" in self.player.harms:
+            ret = ([] if attr != "DARK" else ret[:1]) if ret[0].id == 195 else ret[-1:]
 
         return ret
 
