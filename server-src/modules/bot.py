@@ -152,10 +152,11 @@ class AIProcessor:
 
     def getCounterRings(self, forAttribute: str) -> list[Item]:
         items = []
+        harms = []
         for id in self.player.items:
             item = self.server.itemManager.getItem(id)
 
-            if item.defenseKind == "COUNTER":
+            if item.defenseKind == "COUNTER" and not (item.isAtkHarm() and item.attackExtra in harms):
                 if forAttribute == "FIRE" and item.attribute not in ["WATER", "LIGHT"]:
                     continue
                 elif forAttribute == "WATER" and item.attribute not in ["FIRE", "LIGHT"]:
@@ -166,7 +167,10 @@ class AIProcessor:
                     continue
                 elif forAttribute == "LIGHT" and item.attribute not in ["DARK"]:
                     continue
+                if item.isAtkHarm():
+                    harms.append(item.attackExtra)
                 items.append(item)
+        
         return items
 
     def getCounterItem(self, forAttribute: Optional[str], counter: bool, magic: bool, weapon: bool) -> Optional[Item]:
