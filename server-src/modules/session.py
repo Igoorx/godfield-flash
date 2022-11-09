@@ -102,6 +102,7 @@ class Session:
             player.ready = True
             player.enableAIProcessor()
             self.room.players.append(player)
+            botNames.remove(player.name)
 
         self.room.addUser(self)
         self.room.startGame()
