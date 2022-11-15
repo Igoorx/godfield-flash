@@ -4,11 +4,12 @@ if TYPE_CHECKING:
     from server import Server
     from modules.room import Room
     from modules.player import Player
-    from modules.item import Item
 from dataclasses import dataclass
 from modules.attack import AttackData
+from modules.item import Item
 
 from typing import Optional
+from enum import Enum
 import random
 
 __all__ = ("AIProcessor",)
@@ -18,6 +19,16 @@ __all__ = ("AIProcessor",)
 class EnemyStats:
     lastHP: Optional[int] = None
     damageCombo: int = 0
+
+class PieceScore(Enum):
+    DISCARD = 0
+    LOWEST = 1
+    BELOW_LOW = 2
+    LOW = 3
+    MEDIUM = 4
+    ABOVE_MEDIUM = 5 
+    HIGH = 6
+    CRITICAL = 7
 
 class AIProcessor:
     player: Player
@@ -265,8 +276,19 @@ class AIProcessor:
                 maxMP = max(item.subValue, maxMP)
         return maxMP
 
+    def exceedsMaxMP(self, items: list[Item]):
+        mpCost = 0
+        for item in list(items):
+            if item.attackExtra == "MAGICAL":
+                mpCost = 99
+            if item.type == "MAGIC":
+                mpCost += item.subValue
+                if mpCost > self.player.mp:
+                    return True
+        return False
+
     # Kind of a hack to avoid multiple magics surpassing the mp limit
-    def removeExcessMagic(self, items: list[Item]):
+    def removeExcessMagic(self, items: list[Item], precomputedDamage: int) -> int:
         mpCost = 0
         for item in list(items):
             if item.attackExtra == "MAGICAL":
@@ -275,6 +297,8 @@ class AIProcessor:
                 mpCost += item.subValue
                 if mpCost > self.player.mp:
                     items.remove(item)
+                    precomputedDamage -= item.getAtk()
+        return precomputedDamage
 
     def getAllies(self) -> Iterator[Player]:
         yield self.player
@@ -283,13 +307,60 @@ class AIProcessor:
                 if player != self.player and not player.dead and not player.isEnemy(self.player):
                     yield player
 
-    def getKillableEnemy(self, item: Item, overrideDamage: Optional[int] = None) -> Player:
-        if not item.attribute:
-            return None
+    def getEnemies(self) -> Iterator[Player]:
         for player in self.room.players:
-            if not player.dead and player.hp <= (item.getAtk() if overrideDamage is None else overrideDamage) and player.isEnemy(self.player):
-                return player
-        return None
+            if not player.dead and player.isEnemy(self.player):
+                yield player
+
+    def getAttackAttribute(self, items: list[Item]) -> Optional[str]:
+        attribute = None
+        usedMagic = False
+        for item in items:
+            if usedMagic and item.attackExtra == "MAGIC_FREE":
+                continue
+            if attribute is None or attribute == "LIGHT" or item.attackExtra == "ADD_ATTRIBUTE":
+                attribute = item.attribute
+            elif attribute != item.attribute and item.attribute != "LIGHT":
+                attribute = ""
+            if item.type == "MAGIC":
+                usedMagic = True
+        return attribute
+
+    def canBeInstantlyKilledBy(self, player: Player, itemOrItems: Item | list[Item], overrideDamage: Optional[int] = None) -> bool:
+        if type(itemOrItems) is Item:
+            if player.disease == "HEAVEN" and itemOrItems.attackExtra in ["COLD", "FEVER", "HELL", "HEAVEN"]:
+                return True
+            if not itemOrItems.attribute:
+                return False
+            # TODO: This needs to be improved to also check item combinations
+            return player.hp <= (itemOrItems.getAtk() if overrideDamage is None else overrideDamage)
+        elif type(itemOrItems) is list:
+            damage = 0
+            attribute = None
+            harms = []
+            usedMagic = False
+            for item in itemOrItems:
+                if usedMagic and item.attackExtra == "MAGIC_FREE":
+                    continue
+                damage += item.getAtk()
+                if item.attackExtra == "DOUBLE_ATK":
+                    damage *= 2
+                if attribute is None or attribute == "LIGHT" or item.attackExtra == "ADD_ATTRIBUTE":
+                    attribute = item.attribute
+                elif attribute != item.attribute and item.attribute != "LIGHT":
+                    attribute = ""
+                if item.isAtkHarm():
+                    harms.append(item.attackExtra)
+                if item.type == "MAGIC":
+                    usedMagic = True
+            assert damage == overrideDamage, f"Damage mismatch! {damage} != {overrideDamage} (Items: {repr(itemOrItems)})"
+            if player.disease == "HEAVEN" and any(harm in harms for harm in ["COLD", "FEVER", "HELL", "HEAVEN"]):
+                return True
+            if not attribute:
+                return False
+            return player.hp <= damage
+        else:
+            raise NotImplementedError()
 
     def onAttackTurn(self) -> AttackData:
         newAttack = AttackData(self.player, *self.buildAttack())
@@ -297,340 +368,321 @@ class AIProcessor:
             newAttack.decidedExchange = self.buildExchange()
         return newAttack
 
-    def buildAttack(self) -> tuple[Player, list[Item]]:
-        # TODO: Build weighted list with all attack possibilities
-        # TODO: Better MP Handling
+    def buildAttackPossibilityScores(self) -> dict[PieceScore, list[tuple[Player, Item | list[Item]]]]:
+        scores: dict[PieceScore, list[tuple[Player, Item | list[Item]]]] = dict((score, []) for score in PieceScore)
 
-        self.checkEnemyStats()
+        def buildMagicScore(item: Item, isBound: bool):
+            magicFree = self.getItemsByAE("MAGIC_FREE")
+            if self.player.mp < item.subValue and len(magicFree) == 0:
+                return
+                
+            # Avoid spamming magics with a low hit rate.
+            if isBound and 0 < item.hitRate < random.randrange(1, 100 + 1):
+                return
 
-        target = None
-        if len(self.possiblyDefenceless) == 0:
-            target = self.room.getRandomAliveEnemy(self.player)
-        else:
-            print("Bot targetting possibly defenceless player.")
-            target = random.choice(self.possiblyDefenceless)
-        print("Bot target:", target)
-        
-        random.shuffle(self.player.items) # TODO: don't do this in this way, maybe use a random access iterator or do a copy or smth
-        random.shuffle(self.player.magics) # TODO: don't do this in this way, maybe use a random access iterator or do a copy or smth
-        pieces = []
-        possibleDiscard = []
-        lastResortAttack = None
-        specialLastResortAttack = None
+            # These items can't be used here
+            if item.attackExtra in ["WIDE_ATK", "DOUBLE_ATK"] or\
+               item.defenseExtra in ["FLICK_MAGIC", "BLOCK_WEAPON"]:
+                return
+            
+            if item.attackKind == "INCREASE_YEN":
+                if self.player.yen >= 50:
+                    if isBound:
+                        return
+                    score = PieceScore.LOW
+                else:
+                    score = PieceScore.MEDIUM
+                if self.player.mp < item.subValue:
+                    scores[score].append((self.player, [item, random.choice(magicFree)]))
+                else:
+                    scores[score].append((self.player, item))
+                return
+            
+            if item.attackKind in ["SET_ASSISTANT", "INCREASE_HP", "REMOVE_ALL_HARMS", "REMOVE_LOWER_HARMS"]:
+                for ally in self.getAllies():
+                    score = PieceScore.LOW
+
+                    if item.attackKind == "SET_ASSISTANT":
+                        if ally.assistantType:
+                            if isBound:
+                                continue
+                            score = PieceScore.DISCARD
+                        else:
+                            score = PieceScore.ABOVE_MEDIUM
+
+                    elif item.attackKind == "INCREASE_HP":
+                        score = PieceScore.LOW if ally.hp >= 25 else PieceScore.CRITICAL  
+
+                    elif item.attackKind == "REMOVE_ALL_HARMS":
+                        if not ally.disease:
+                            if isBound:
+                                continue
+                            score = PieceScore.DISCARD
+                        else:
+                            score = PieceScore.HIGH if ally.disease in ["HELL", "HEAVEN"] else PieceScore.MEDIUM
+
+                    elif item.attackKind == "REMOVE_LOWER_HARMS":
+                        if not ally.hasLowerDisease():
+                            if isBound:
+                                continue
+                            score = PieceScore.DISCARD
+                        else:
+                            score = PieceScore.MEDIUM
+
+                    if score != PieceScore.DISCARD and self.player.mp < item.subValue:
+                        scores[score].append((ally, [item, random.choice(magicFree)]))
+                    else:
+                        scores[score].append((ally, item))
+            else:
+                for target in self.getEnemies():
+                    score = PieceScore.MEDIUM
+
+                    if item.attackExtra == "INCREASE_ATK" and item.getAtk() < 10:
+                        score = PieceScore.LOW
+                    
+                    if item.attackKind == "ATK":
+                        if self.canBeInstantlyKilledBy(target, item):
+                            score = PieceScore.HIGH
+                        elif item.getAtk() >= 10:
+                            score = PieceScore.ABOVE_MEDIUM
+
+                    elif item.attackKind == "ADD_HARM":
+                        isDisease = item.attackExtra in ["COLD", "FEVER", "HELL", "HEAVEN"]
+                        # TODO: If that could be assured to be possible, we could allow the bot to kill the player by worsening the disease until heaven break.
+                        if (isDisease and target.disease == "HELL") or item.attackExtra in target.harms:
+                            continue
+                        if isDisease and target.disease == "HEAVEN":
+                            score = PieceScore.HIGH
+
+                    if self.player.mp < item.subValue:
+                        scores[score].append((target, [item, random.choice(magicFree)]))
+                    else:
+                        scores[score].append((target, item))
         
         for id in self.player.magics:
             item = self.server.itemManager.getItem(id)
-
-            if self.player.mp < item.subValue:
-                continue
-
-            # Avoid spamming magics with a low hit rate.
-            if 0 < item.hitRate < random.randrange(1, 100 + 1):
-                continue
-
-            if item.attackKind == "ATK":
-                killableEnemy = self.getKillableEnemy(item)
-                return target if killableEnemy is None else killableEnemy, [item]
-
-            if item.attackKind == "ADD_HARM":
-                if target.disease == item.attackExtra or item.attackExtra in target.harms:
-                    continue
-                return target, [item]
-
-            if item.attackExtra in ["WIDE_ATK", "DOUBLE_ATK"] or\
-               item.defenseExtra in ["FLICK_MAGIC", "BLOCK_WEAPON"]:
-                # These items can't be used here
-                continue
-            
-            if item.attackKind == "SET_ASSISTANT":
-                for ally in self.getAllies():
-                    if ally.assistantType:
-                        continue
-                    return ally, [item]
-
-            if item.attackKind == "INCREASE_HP":
-                if lastResortAttack is None:
-                    lastResortAttack = self.player, [item]
-                for ally in self.getAllies():
-                    if ally.hp >= 25:
-                        continue
-                    return ally, [item]
-
-            if item.attackKind == "INCREASE_YEN":
-                if specialLastResortAttack is None:
-                    specialLastResortAttack = self.player, [item]
-                if self.player.yen >= 50:
-                    continue
-                return self.player, [item]
-
-            if item.attackKind == "REMOVE_ALL_HARMS":
-                if specialLastResortAttack is None:
-                    specialLastResortAttack = self.player, [item]
-                for ally in self.getAllies():
-                    if not ally.disease:
-                        continue
-                    return ally, [item]
-
-            if item.attackKind == "REMOVE_LOWER_HARMS":
-                if specialLastResortAttack is None:
-                    specialLastResortAttack = self.player, [item]
-                for ally in self.getAllies():
-                    if not ally.hasLowerDisease():
-                        continue
-                    return ally, [item]
+            buildMagicScore(item, True)
 
         for id in self.player.items:
             item = self.server.itemManager.getItem(id)
 
             if item.type == "SUNDRY":
-                if item.attackExtra not in ["MORTAR", "REMOVE_ABILITIES", "REVIVE"]:
-                    possibleDiscard.append(item)
-
-                if item.attackExtra in ["INCREASE_ATK", "MAGIC_FREE", "REVIVE", "MORTAR"]:
-                    # These items can't be used for direct attacks
+                if item.attackExtra in ["REVIVE", "MORTAR"]:
+                    # These items can't be used for direct attacks, and shouldn't be discarded.
                     continue
 
-                if item.attackKind == "SET_ASSISTANT":
+                if item.attackExtra in ["INCREASE_ATK", "MAGIC_FREE"]:
+                    scores[PieceScore.DISCARD].append((self.player, item))
+                    continue
+
+                if item.attackKind in ["SET_ASSISTANT", "INCREASE_HP", "INCREASE_MP", "REMOVE_ALL_HARMS", "REMOVE_LOWER_HARMS"]:
                     for ally in self.getAllies():
-                        if ally.assistantType:
-                            continue
-                        return ally, [item]
-                    # No allies need this item, so skip it for now.
-                    continue
+                        score = PieceScore.DISCARD
 
-                if item.attackKind == "INCREASE_HP":
-                    if lastResortAttack is None:
-                        lastResortAttack = self.player, [item]
-                    for ally in self.getAllies():
-                        if ally.hp >= 25:
-                            continue
-                        return ally, [item]
-                    # No allies need this item, so skip it for now.
-                    continue
+                        if item.attackKind == "SET_ASSISTANT":
+                            if not ally.assistantType:
+                                score = PieceScore.ABOVE_MEDIUM
 
-                if item.attackKind == "INCREASE_MP":
-                    if lastResortAttack is None:
-                        lastResortAttack = self.player, [item]
-                    for ally in self.getAllies():
-                        if ally.mp >= self.getMaxMPForMagic(ally):
-                            continue
-                        return ally, [item]
-                    # No allies need this item, so skip it for now.
-                    continue
+                        elif item.attackKind == "INCREASE_HP":
+                            score = PieceScore.LOW if ally.hp >= 25 else PieceScore.CRITICAL
 
-                if item.attackKind == "REMOVE_ALL_HARMS":
-                    for ally in self.getAllies():
-                        if not ally.disease:
-                            # TODO: Use the item if we need inventory space and don't have a remove lower harms item
-                            continue
-                        return ally, [item]
-                    # No allies need this item, so skip it for now.
-                    continue
+                        elif item.attackKind == "INCREASE_MP":
+                            score = PieceScore.LOW if ally.mp >= self.getMaxMPForMagic(ally) else PieceScore.MEDIUM
 
-                if item.attackKind == "REMOVE_LOWER_HARMS":
-                    for ally in self.getAllies():
-                        if not ally.hasLowerDisease():
-                            # TODO: Use the item if we need inventory space
-                            continue
-                        return ally, [item]
-                    # No allies need this item, so skip it for now.
-                    continue
+                        elif item.attackKind == "REMOVE_ALL_HARMS":
+                            if ally.disease:
+                                score = PieceScore.HIGH if ally.disease in ["HELL", "HEAVEN"] else PieceScore.MEDIUM
 
-                if item.attackKind == "REMOVE_ABILITIES":
-                    if len(target.magics) == 0:
-                        continue
-                
-                return target, [item]
+                        elif item.attackKind == "REMOVE_LOWER_HARMS":
+                            if ally.hasLowerDisease():
+                                score = PieceScore.MEDIUM
+                                
+                        scores[score].append((ally, item))
+                else:
+                    for target in self.getEnemies():
+                        score = PieceScore.MEDIUM
+                        
+                        if item.attackKind == "REMOVE_ABILITIES":
+                            if len(target.magics) == 0:
+                                score = PieceScore.DISCARD
+                    
+                        scores[score].append((target, item))
 
             elif item.type == "TRADE":
-                if item.attackKind == "SELL":
-                    # Always try to sell mortars when we have one
-                    mortar = self.getItemsByAE("MORTAR")
-                    if len(mortar) > 0:
-                        return target, [item, mortar[0]]
+                if item.attackKind == "EXCHANGE":
+                    score = PieceScore.DISCARD
+                    if self.player.hp > 30 or self.player.mp != 0 or self.player.yen != 0:
+                        needsHP = self.player.hp < 20
+                        needsMP = self.player.mp < 30 and (self.player.magics or any(self.server.itemManager.getItem(id).type == "MAGIC" for item in self.player.items))
+                        if needsHP or (needsMP and (self.player.yen > 0 or self.player.hp >= 50)):
+                            score = PieceScore.CRITICAL if needsHP else PieceScore.MEDIUM
+                    scores[score].append((self.player, item))
+                    continue
 
-                    # Try to sell the most valuable item that isn't good
-                    # TODO: Sell good items if it can be good for us
-                    mostValuable = None
-                    for id in self.player.items:
-                        _item = self.server.itemManager.getItem(id)
-                        if self.checkIsGood(_item):
+                mostValuable = None
+                itemToSell = None
+
+                for target in self.getEnemies():
+                    score = PieceScore.MEDIUM
+                    
+                    if item.attackKind == "SELL":
+                        if itemToSell is None:
+                            # Always try to sell mortars when we have one
+                            mortar = self.getItemsByAE("MORTAR")
+                            if len(mortar) > 0:
+                                score = PieceScore.HIGH
+                                itemToSell = mortar[0]
+                            else:
+                                # Try to sell the most valuable item that isn't good
+                                # TODO: Sell good items if it can be good for us
+                                if mostValuable is None:
+                                    for id in self.player.items:
+                                        _item = self.server.itemManager.getItem(id)
+                                        if self.checkIsGood(_item):
+                                            continue
+                                        if _item not in self.player.magics and _item != item and (mostValuable is None or mostValuable.price < _item.price):
+                                            mostValuable = _item
+                                if mostValuable is not None:
+                                    if mostValuable.price > 10:
+                                        score = PieceScore.MEDIUM
+                                        itemToSell = mostValuable
+                                    else:
+                                        score = PieceScore.LOW
+                                        itemToSell = mostValuable
+                                else:
+                                    # We have no items to sell
+                                    score = PieceScore.DISCARD
+                                    itemToSell = None
+                        if itemToSell is not None:
+                            scores[score].append((target, [item, itemToSell]))
                             continue
-                        if _item not in self.player.magics and _item != item and (mostValuable is None or mostValuable.price < _item.price):
-                            mostValuable = _item
-                    if mostValuable is not None:
-                        if mostValuable.price > 10:
-                            return target, [item, mostValuable]
-                        if lastResortAttack is None:
-                            lastResortAttack = target, [item, mostValuable]
-                elif item.attackKind == "BUY":
-                    if self.player.yen == 0:
-                        possibleDiscard.append(item)
-                        continue
-                    elif self.player.yen < 5:
-                        if lastResortAttack is None:
-                            lastResortAttack = target, [item]
-                        continue
-                    return target, [item]
-                elif item.attackKind == "EXCHANGE":
-                    possibleDiscard.append(item)
-                    if self.player.hp <= 30 and self.player.mp == 0 and self.player.yen == 0:
-                        # Exchange would result in "No Change"
-                        continue
-                    needsHP = self.player.hp < 20
-                    needsMP = self.player.mp < 30 and (self.player.magics or any(self.server.itemManager.getItem(id).type == "MAGIC" for item in self.player.items))
-                    if needsHP or (needsMP and (self.player.yen > 0 or self.player.hp >= 50)):
-                        return self.player, [item]
+
+                    elif item.attackKind == "BUY":
+                        if self.player.yen == 0:
+                            score = PieceScore.DISCARD
+                        elif self.player.yen < 5:
+                            score = PieceScore.LOW
+                        
+                    scores[score].append((target, item))
 
             elif item.type == "WEAPON":
                 if item.attackKind == "ATK":
-                    if specialLastResortAttack is None:
-                        specialLastResortAttack = target, [item]
+                    pieces = []
+                    damage = 0
 
-                    if item.attackExtra == "PESTLE":
-                        return target, [item]
+                    for target in self.getEnemies():
+                        if item.attackExtra == "PESTLE":
+                            score = PieceScore.HIGH
+                        elif item.attackExtra == "DYING_ATTACK":
+                            score = PieceScore.LOWEST
+                        elif "REFLECT" in item.defenseExtra or "FLICK" in item.defenseExtra or "BLOCK" in item.defenseExtra:
+                            #TODO: Increase if we can kill the enemy AND we know it doesn't have defense
+                            score = PieceScore.BELOW_LOW
+                        elif item.hitRate > 0:
+                            score = PieceScore.MEDIUM if self.room.getAliveCount() <= 2 else PieceScore.ABOVE_MEDIUM
+                        else:            
+                            if len(pieces) == 0:
+                                pieces.append(item)
+                                damage = item.getAtk()
+                                isSpecial = item.attribute in ["DARK", "LIGHT"]
 
-                    if item.attackExtra == "DYING_ATTACK":
-                        # Save the dying attack for when we are dying
-                        # TODO: Use the dying attack if it can be good for us (hardly this can be possible tho)
-                        continue
+                                magicFree = self.getItemsByAE("MAGIC_FREE")
+                                
+                                # TODO: Try to make it wait to stack a better attack, like with increase_atk and others extras
+                                # TODO: Only override item attribute if we can get a good damage doing so
+                                # TODO: If weapon or extras has ADD_HARM, try to stack as much damage as possible
 
-                    if "REFLECT" in item.defenseExtra or "FLICK" in item.defenseExtra or "BLOCK" in item.defenseExtra:
-                        if lastResortAttack is None:
-                            lastResortAttack = target, [item]
-                        #TODO: Use this item if we need inventory space or if we can kill the enemy
-                        continue
+                                if item.attackExtra != "INCREASE_ATK":
+                                    if isSpecial:
+                                        increaseAtkAttrib = self.getItemsByAE("INCREASE_ATK", item.attribute)
+                                        pieces += increaseAtkAttrib
+                                        damage += self.getItemsDamage(increaseAtkAttrib)
+                                    else:
+                                        increaseAtk = self.getItemsByAE("INCREASE_ATK")
+                                        pieces += increaseAtk
+                                        damage += self.getItemsDamage(increaseAtk)
 
-                    if item.hitRate > 0:
-                        return target, [item]
-                    
-                    isSpecial = item.attribute in ["DARK", "LIGHT"]
-                    # TODO: Try to make it wait to stack a better attack, like with increase_atk and others extras
-                    # TODO: Only override item attribute if we can get a good damage doing so
-                    # TODO: If weapon or extras has ADD_HARM, try to stack as much damage as possible
+                                if not isSpecial:
+                                    doubleAtk = self.getItemsByAE("DOUBLE_ATK")[1:]
+                                    if item.attackExtra != "DOUBLE_ATK" and len(doubleAtk) > 0:
+                                        if damage >= 10:
+                                            pieces += doubleAtk
+                                            damage *= 2
 
-                    if item.attackExtra != "WIDE_ATK" and item.attackExtra != "INCREASE_ATK" and item.attackExtra != "DOUBLE_ATK" and item.attackExtra != "ADD_ATTRIBUTE":
-                        pieces.append(item)
-                        if not isSpecial:
-                            pieces += self.getItemsByAE("INCREASE_ATK")
-                            damage = self.getItemsDamage(pieces)
-                            if damage >= 10:
-                                pieces += self.getItemsByAE("DOUBLE_ATK")
-                            pieces += self.getItemsByAE("ADD_ATTRIBUTE")
-                        else:
-                            pieces += self.getItemsByAE("INCREASE_ATK", item.attribute)
-                            pieces += self.getItemsByAE("ADD_ATTRIBUTE", item.attribute)
-                        self.removeExcessMagic(pieces)
-                        damage = self.getItemsDamage(pieces)
-                        if damage > 5 and self.room.getAliveCount() > 2:
-                            pieces += self.getItemsByAE("WIDE_ATK")
-                        self.removeExcessMagic(pieces)
-                        killableEnemy = self.getKillableEnemy(item, damage)
-                        return target if killableEnemy is None else killableEnemy, pieces
+                                    if item.attackExtra != "ADD_ATTRIBUTE":
+                                        addAttribute = self.getItemsByAE("ADD_ATTRIBUTE")[1:]
+                                        pieces += addAttribute
+                                        damage += self.getItemsDamage(addAttribute)
 
-                    if item.attackExtra != "WIDE_ATK" and item.attackExtra != "INCREASE_ATK" and item.attackExtra != "ADD_ATTRIBUTE":
-                        pieces.append(item)
-                        if not isSpecial:
-                            pieces += self.getItemsByAE("INCREASE_ATK")
-                            pieces += self.getItemsByAE("ADD_ATTRIBUTE")
-                        else:
-                            pieces += self.getItemsByAE("INCREASE_ATK", item.attribute)
-                            pieces += self.getItemsByAE("ADD_ATTRIBUTE", item.attribute)
-                        self.removeExcessMagic(pieces)
-                        damage = self.getItemsDamage(pieces)
-                        if damage > 5 and self.room.getAliveCount() > 2:
-                            pieces += self.getItemsByAE("WIDE_ATK")
-                        self.removeExcessMagic(pieces)
-                        killableEnemy = self.getKillableEnemy(item)
-                        return target if killableEnemy is None else killableEnemy, pieces
+                                    if len(magicFree) == 0:
+                                        damage = self.removeExcessMagic(pieces, damage)
 
-                    if item.attackExtra != "INCREASE_ATK" and item.attackExtra != "ADD_ATTRIBUTE":
-                        pieces.append(item)
-                        if not isSpecial:
-                            pieces += self.getItemsByAE("INCREASE_ATK")
-                            pieces += self.getItemsByAE("ADD_ATTRIBUTE")
-                        else:
-                            pieces += self.getItemsByAE("INCREASE_ATK", item.attribute)
-                            pieces += self.getItemsByAE("ADD_ATTRIBUTE", item.attribute)
-                        self.removeExcessMagic(pieces)
-                        killableEnemy = self.getKillableEnemy(item)
-                        return target if killableEnemy is None else killableEnemy, pieces
+                                    if damage > 5 and self.room.getAliveCount() > 2:
+                                        wideAtk = self.getItemsByAE("WIDE_ATK")
+                                        pieces += wideAtk
+                                        damage += self.getItemsDamage(wideAtk)
 
-                    if item.attackExtra != "ADD_ATTRIBUTE":
-                        pieces.append(item)
-                        pieces += self.getItemsByAE("ADD_ATTRIBUTE", item.attribute if isSpecial else None)
-                        self.removeExcessMagic(pieces)
-                        killableEnemy = self.getKillableEnemy(item)
-                        return target if killableEnemy is None else killableEnemy, pieces
+                                if self.exceedsMaxMP(pieces):
+                                    if len(magicFree) == 0:
+                                        damage = self.removeExcessMagic(pieces, damage)
+                                    else:
+                                        pieces.append(random.choice(magicFree))
 
-                    pieces.append(item)
-                    killableEnemy = self.getKillableEnemy(item)
-                    return target if killableEnemy is None else killableEnemy, pieces
+                            if self.canBeInstantlyKilledBy(target, pieces, damage):
+                                score = PieceScore.HIGH
+                            elif len(pieces) > 1 and self.getAttackAttribute(pieces):
+                                score = PieceScore.ABOVE_MEDIUM
+                            elif pieces[0].attackExtra in ["INCREASE_ATK", "ADD_ATTRIBUTE", "MAGIC_FREE"]:
+                                score = PieceScore.BELOW_LOW
+                            else:
+                                score = PieceScore.MEDIUM
+                        
+                        scores[score].append((target, pieces if len(pieces) > 0 else item))      
 
             elif item.type == "MAGIC":
-                if self.player.mp < item.subValue:
-                    continue
-
-                if item.attackKind == "ATK":
-                    killableEnemy = self.getKillableEnemy(item)
-                    return target if killableEnemy is None else killableEnemy, [item]
-
-                if item.attackKind == "ADD_HARM":
-                    if target.disease == item.attackExtra or item.attackExtra in target.harms:
-                        continue
-                    return target, [item]
-
-                if item.attackExtra in ["WIDE_ATK", "DOUBLE_ATK"] or\
-                   item.defenseExtra in ["FLICK_MAGIC", "BLOCK_WEAPON"]:
-                    # These items can't be used here
-                    continue
-                
-                if item.attackKind == "SET_ASSISTANT":
-                    for ally in self.getAllies():
-                        if ally.assistantType:
-                            continue
-                        return ally, [item]
-
-                if item.attackKind == "INCREASE_HP":
-                    if lastResortAttack is None:
-                        lastResortAttack = self.player, [item]
-                    for ally in self.getAllies():
-                        if ally.hp >= 25:
-                            continue
-                        return ally, [item]
-
-                if item.attackKind == "REMOVE_ALL_HARMS":
-                    for ally in self.getAllies():
-                        if not ally.disease:
-                            continue
-                        return ally, [item]
-
-                if item.attackKind == "REMOVE_LOWER_HARMS":
-                    for ally in self.getAllies():
-                        if not ally.hasLowerDisease():
-                            continue
-                        return ally, [item]
+                buildMagicScore(item, False)
 
             elif item.type == "PROTECTOR":
                 if item.defenseExtra != "REFLECT_ANY":
-                    possibleDiscard.append(item)
+                    scores[PieceScore.DISCARD].append((self.player, item))
 
-        if lastResortAttack is not None:
-            # We can't do anything else, so we can only resort to this
-            return lastResortAttack
+        return scores
 
-        if len(self.player.items) == 16 and len(possibleDiscard) != 0:
-            # Discard two items so we can receive new items in the next turn.
-            return self.player, [self.server.itemManager.getItem(1)] + random.sample(possibleDiscard, k = min(2, len(possibleDiscard)))
+    def buildAttack(self) -> tuple[Player, list[Item]]:
+        self.checkEnemyStats()
 
-        if specialLastResortAttack is not None:
-            # We LITERALLY can't do anything else, so we can only resort to this
-            return specialLastResortAttack
+        scores = self.buildAttackPossibilityScores()
+        #print("Attack Possibility Scores:", repr(scores))
+
+        discardScoresCopy = list(scores[PieceScore.DISCARD])
+        for attack in discardScoresCopy:
+            # Prune discard list
+            assert type(attack[1]) is Item
+            for _attack in discardScoresCopy:
+                assert type(_attack[1]) is Item
+                if attack[0] == _attack[0] or attack[1] != _attack[1] or _attack not in scores[PieceScore.DISCARD]:
+                    continue
+                scores[PieceScore.DISCARD].remove(_attack)
+
+        for score, attackList in reversed(scores.items()):
+            if len(attackList) == 0:
+                continue
+            if score == PieceScore.DISCARD:
+                if len(self.player.items) == 16:
+                    # Discard two items so we can receive new items in the next turn.
+                    print("Bot is full of items! 2 items will be discarded.")
+                    possibleDiscard = [attack[1] for attack in attackList]
+                    return self.player, [self.server.itemManager.getItem(1)] + random.sample(possibleDiscard, k = min(2, len(possibleDiscard)))  # type: ignore
+            else:
+                attack = random.choice(attackList)
+                assert attack[1], f"{score}, {repr(attack)}"
+                print("Bot target:", attack[0])
+                return attack[0], attack[1] if type(attack[1]) is list else [attack[1]]  # type: ignore
 
         print(f"Bot \"{self.player.name}\" couldn't do anything with it's current items.")
         print(list(map(self.server.itemManager.getItem, self.player.items)))
 
-        return target, [self.server.itemManager.getItem(0)]
+        return self.player, [self.server.itemManager.getItem(0)]
 
     def buildExchange(self) -> dict[str, int]:
         decidedExchange = {
@@ -746,9 +798,9 @@ class AIProcessor:
 
         return ret
 
-    def getBuyResponse(self, decidedItem) -> bool:
-        # TODO.
-        return True
+    def getBuyResponse(self, decidedItem: Item) -> bool:
+        # TODO: Improve condition?
+        return decidedItem.price < 15
 
     def notifyAttack(self, atkData, defPiece, blocked):
         attacker = atkData.attacker
