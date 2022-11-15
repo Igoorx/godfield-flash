@@ -87,22 +87,30 @@ class TurnHandler:
             atkData.defender = getRandomAlive(atkData.attacker)
             print(f"Attack target changed to: {atkData.defender}")
 
+        magicFreeIdxList = []
+        for idx in (i for i, item in enumerate(atkData.piece) if item.attackExtra == "MAGIC_FREE"):
+            for itemIdx in reversed(range(idx)):
+                if atkData.piece[itemIdx].type == "MAGIC":
+                    magicFreeIdxList.append(itemIdx)
+                    break
+        
         massiveAttack = False
-        isMagicFree = False if len(atkData.piece) == 0 else atkData.piece[-1].attackExtra == "MAGIC_FREE"
+        usedMagic = False
         isFirstPiece = True
         
-        for item in atkData.piece:
+        for idx, item in enumerate(atkData.piece):
             if not forced:
                 isValidItem = False
                 if isFirstPiece:
-                    isValidItem = item.type != "PROTECTOR" and (item.type not in ["MAGIC", "SUNDRY"] or item.attackKind)
+                    isValidItem = item.type != "PROTECTOR" and (item.type not in ["MAGIC", "SUNDRY"] or item.attackKind != "")
                 else:
                     isValidItem = item.attackKind not in ["DO_NOTHING", "DISCARD", "SELL", "EXCHANGE", "MYSTERY"] and\
                                     ((item.attackExtra in ["INCREASE_ATK", "DOUBLE_ATK", "WIDE_ATK", "ADD_ATTRIBUTE"] and\
                                       atkData.piece[0].type == "WEAPON" and atkData.piece[0].hitRate == 0) or\
-                                        (item.attackExtra == "MAGIC_FREE" and atkData.piece[0].type == "MAGIC")) # why were we using -1 index?
+                                        (usedMagic and item.attackExtra == "MAGIC_FREE"))
                 assert isValidItem, f"Invalid attack used! (Item: {repr(item)})"
 
+            isMagicFree = idx in magicFreeIdxList
             isFirstPiece = False
 
             if item.attackKind == "DO_NOTHING":
@@ -116,13 +124,17 @@ class TurnHandler:
                 atkData.isAction = True
                 break
             elif not forced:
-                usedMagic = False
+                boundMagicUsed = False
                 if item.type == "MAGIC":
-                    usedMagic = atkData.attacker.tryUseMagic(item.id, isMagicFree)
-                if not usedMagic:
+                    usedMagic = True
+                    boundMagicUsed = atkData.attacker.tryUseMagic(item.id, isMagicFree)
+                if not boundMagicUsed:
                     assert not atkData.attacker.hasMagic(item.id), f"\"{atkData.attacker.name}\" failed to use magic {item.id}"
                     atkData.attacker.useItem(item.id, isMagicFree)
                 atkData.attacker.deal += 1
+
+            if usedMagic and item.attackExtra == "MAGIC_FREE":
+                continue
 
             if item.attackKind == "EXCHANGE":
                 assert len(atkData.piece) == 1
@@ -200,7 +212,7 @@ class TurnHandler:
                         player.assistantHP = 20
                 break
             elif item.attackKind == "SET_ASSISTANT":
-                assert len(atkData.piece) == 1
+                assert len(atkData.piece) == 1 + (1 if isMagicFree else 0)
                 if self.room.forceNextAssistant is not None:
                     atkData.decidedAssistant = self.room.forceNextAssistant
                     self.room.forceNextAssistant = None
@@ -272,7 +284,7 @@ class TurnHandler:
             if atkData.attribute is None or atkData.attribute == "LIGHT" or item.attackExtra == "ADD_ATTRIBUTE":
                 atkData.attribute = item.attribute
             elif atkData.attribute != item.attribute and item.attribute != "LIGHT":
-                atkData.attribute = ""                
+                atkData.attribute = ""
         
         if massiveAttack:
             assert not atkData.isAction and atkData.chance > 0
@@ -525,17 +537,27 @@ class TurnHandler:
         reflected = False
         flicked = False
 
-        isMagicFree = False if len(piece) == 0 else piece[-1].attackExtra == "MAGIC_FREE"
+        magicFreeIdxList = []
+        for idx in (i for i, item in enumerate(piece) if item.attackExtra == "MAGIC_FREE"):
+            for itemIdx in reversed(range(idx)):
+                if piece[itemIdx].type == "MAGIC":
+                    magicFreeIdxList.append(itemIdx)
+                    break
+
+        usedMagic = False
         defenseAttr = None
 
         print("New Defender Command!")
         print("Used:", str(piece))
 
-        for item in piece:
-            magicUsed = False
+        for idx, item in enumerate(piece):
+            isMagicFree = idx in magicFreeIdxList
+
+            boundMagicUsed = False
             if item.type == "MAGIC":
-                magicUsed = player.tryUseMagic(item.id, isMagicFree)
-            if not magicUsed:
+                usedMagic = True
+                boundMagicUsed = player.tryUseMagic(item.id, isMagicFree)
+            if not boundMagicUsed:
                 assert not player.hasMagic(item.id), f"\"{player.name}\" failed to use magic {item.id}"
                 player.useItem(item.id, isMagicFree)
             player.deal += 1
@@ -543,6 +565,9 @@ class TurnHandler:
             if item.id == 195:  # REMOVE_ATTRIBUTE
                 atkData.attribute = ""
                 self.currentAttack.attribute = ""
+
+            if usedMagic and item.attackExtra == "MAGIC_FREE":
+                continue
             
             if defenseAttr is None or defenseAttr == "LIGHT":
                 defenseAttr = item.attribute
