@@ -5,6 +5,7 @@ if TYPE_CHECKING:
     from modules.user import User
     from modules.room import Room
 from modules.player import Player
+from modules.commandPiece import CommandPiece
 from helpers.xmlbuilder import XMLBuilder
 
 import random
@@ -213,6 +214,9 @@ class Session:
         elif comment.startswith("fid"):
             self.room.forceInitialDeal = list(map(int, args[0].split("+"))) if len(args) > 0 else None
 
+        elif comment.startswith("fdi") and len(args) > 0:
+            self.room.fdIncludeBots = int(args[0]) == 1
+
         elif comment.startswith("fna") and len(args) > 0:
             self.room.forceNextAssistant = args[0]
 
@@ -246,6 +250,13 @@ class Session:
                 # Broadcast to Lobby
                 builder.roomID(str(self.room.id))
                 self.server.lobbyBroadXml(builder)
+
+        elif comment.startswith("clp"):
+            for player in self.room.players:
+                if player.session is None:
+                    player.pieces = []
+                    for _ in range(16):
+                        player.pieces.append(CommandPiece(self.server.itemManager.getItem(2)))
 
     @request("ENTER_GAME")
     def enterGameHandler(self, xmldict):
@@ -299,8 +310,7 @@ class Session:
         if type(piece) is not list:
             piece = [piece]
 
-        # Convert ids to instances
-        piece = [self.server.itemManager.getItem(int(list(x.values())[0])) for x in piece]
+        piece = [CommandPiece.fromDict(self.server.itemManager, x) for x in piece]
         
         decidedExchange = None
         if power is not None:
@@ -314,7 +324,8 @@ class Session:
         if target is not None:
             target = self.room.getPlayer(target)
             assert target is not None
-            endInning = self.room.turn.attackerCommand(self.player, piece, target, decidedExchange)
+            self.room.turn.attackerCommand(self.player, piece, target, decidedExchange)
+            endInning = True
         else:
             endInning = self.room.turn.defenderCommand(self.player, piece)
 

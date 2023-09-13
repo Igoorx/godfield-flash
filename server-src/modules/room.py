@@ -7,10 +7,10 @@ if TYPE_CHECKING:
 from helpers.xmlbuilder import XMLBuilder
 from modules.player import Player
 from modules.turn import TurnHandler
+from modules.commandPiece import CommandPiece
 from modules.attack import AttackData
 
 import random
-from twisted.internet import reactor
 
 __all__ = ("Room",)
 
@@ -36,6 +36,7 @@ class Room:
     turn: TurnHandler
     forceNextDeal: Optional[int]
     forceInitialDeal: Optional[list[int]]
+    fdIncludeBots: bool
     forceNextAssistant: Optional[str]
     users: list[Session]
     players: list[Player]
@@ -67,6 +68,7 @@ class Room:
 
         self.forceNextDeal = None
         self.forceInitialDeal = None
+        self.fdIncludeBots = False
         self.forceNextAssistant = None
 
         self.users = list()
@@ -144,30 +146,7 @@ class Room:
                 bGame.isEnded
             bPlayers = bGame.players
             for player in self.players:
-                bPlayer = bPlayers.player
-                bPlayer.name(player.name)
-                bPlayer.team(player.team)
-                if player.ready:
-                    bPlayer.isReady  # <isReady />
-                if player.dead:
-                    bPlayer.isDead  # <isDead />
-                if player.lost:
-                    bPlayer.isLost
-                if player.finished:
-                    bPlayer.isFinished
-                if player.waitingAttackTurn:
-                    bPlayer.isWaitingAttackTurn
-                bPlayer.power(key="HP")(str(player.hp))
-                bPlayer.power(key="MP")(str(player.mp))
-                bPlayer.power(key="YEN")(str(player.yen))
-                if player.disease:
-                    bPlayer.disease(player.disease)
-                for harm in player.harms:
-                    bPlayer.harm(harm)
-                if player.assistantType:
-                    bAssistant = bPlayer.assistant
-                    bAssistant.type(player.assistantType)
-                    bAssistant.hp(str(player.assistantHP))
+                player.writeXML(bPlayers.player)
         
         if self.playing:
             privPlayer = self.getPlayer(user.name)
@@ -175,9 +154,8 @@ class Room:
                 bGame.dealCount(str(privPlayer.deal))
                 bPrivPlayer = bGame.privatePlayer
                 bPrivPlayer.time("1475196662616")
-                for item in privPlayer.items:
-                    # TODO: Illusion
-                    bPrivPlayer.item.item(str(item))
+                for piece in privPlayer.pieces:
+                    bPrivPlayer.item.item(str(piece.getItemOrIllusion().id))
                 for idx, item in enumerate(privPlayer.magics):
                     bAbility = bPrivPlayer.ability
                     bAbility.item(str(item))
@@ -193,13 +171,8 @@ class Room:
                 # TODO: retargeted attacks appears as normal attacks... idk if there's any way to fix this
                 bAttacker.name(str(atkData.attacker.name))
                 bCommand = bGame.COMMAND
-                for item in atkData.piece:
-                    bPiece = bCommand.piece
-                    bPiece.item(str(item.id))
-                    if item.attackExtra == "MAGICAL":
-                        bPiece.costMP(str(atkData.damage // 2))
-                    if item.assistantType:
-                        bPiece.assistantType(item.assistantType)
+                for piece in atkData.pieceList:
+                    piece.writeXML(bCommand.piece)
                 if atkData.decidedValue is not None:
                     bCommand.decidedValue(str(atkData.decidedValue))
                 if atkData.decidedMystery is not None:
@@ -213,11 +186,8 @@ class Room:
                     builder.commandChain.hp(str(atkData.decidedHP))
                 if atkData.decidedAssistant is not None:
                     builder.commandChain.assistantType(atkData.decidedAssistant)
-                if atkData.attacker == atkData.defender and atkData.decidedItem is not None:
-                    bPiece = builder.commandChain.piece
-                    bPiece.item(str(atkData.decidedItem.id))
-                    if atkData.abilityIndex is not None:
-                        bPiece.abilityIndex(str(atkData.abilityIndex))
+                if atkData.attacker == atkData.defender and atkData.decidedPiece is not None:
+                    atkData.decidedPiece.writeXML(builder.commandChain.piece)
 
         user.sendXml(builder)
 
@@ -310,7 +280,7 @@ class Room:
             atkData = self.turn.currentAttack
             if atkData is None:
                 if self.turn.attacker == player:
-                    self.turn.queueAttack(player.aiProcessor.onAttackTurn())
+                    self.turn.attackerCommand(player, *player.aiProcessor.onAttackTurn())
                     endInning = True
             elif atkData.defender == player:
                 endInning = self.turn.defenderCommand(player, player.aiProcessor.onDefenseTurn())
@@ -394,6 +364,10 @@ class Room:
         self.playing = False
         self.ended = True
 
+        for player in self.players:
+            if "ILLUSION" in player.harms:
+                player.unillusionPieces()
+
         builder = XMLBuilder("END_GAME")
         self.broadXml(builder)
 
@@ -425,13 +399,15 @@ class Room:
             if player.hp > 0 or player.dead:
                 continue
             
-            if self.getAliveCount() >= 2 and player.hasItem(244):  # REVIVE
-                self.turn.playerDyingAttack(player, self.server.itemManager.getItem(244))
-            elif self.getAliveCount() >= 2 and player.hasItem(117):  # DYING_ATTACK
+            if self.getAliveCount() >= 2 and (piece := player.getOwnedPieceById(244)) is not None:  # REVIVE
+                self.turn.playerDyingAttack(player, piece)
+            elif self.getAliveCount() >= 2 and (piece := player.getOwnedPieceById(117)) is not None:  # DYING_ATTACK
                 player.dead = True
-                self.turn.playerDyingAttack(player, self.server.itemManager.getItem(117))
+                self.turn.playerDyingAttack(player, piece)
             else:
                 player.dead = True
+                if "ILLUSION" in player.harms:
+                    player.pendingUnillusion = True
                 
                 if player.team == "SINGLE":
                     player.lost = True
@@ -447,11 +423,21 @@ class Room:
                 builder.roomID(str(self.id))
                 self.server.lobbyBroadXml(builder)
 
+    def handlePlayersUnillusion(self):
+        for player in self.players:
+            if player.pendingUnillusion:
+                player.unillusionPieces()
+
+    def handlePlayersUnfog(self):
+        for player in self.players:
+            if player.pendingUnfog:
+                player.unfog()
+
     def doPlayersDeals(self):
         for player in self.players:
-            print(player.name, "HP:", player.hp, "MP:", player.mp, "YEN:", player.yen, "ITEMS:", len(player.items), "MAGICS:", len(player.magics))
+            print(player.name, "HP:", player.hp, "MP:", player.mp, "YEN:", player.yen, "PIECES:", len(player.pieces), "MAGICS:", len(player.magics), "DISEASE:", player.disease if player.disease else "None", "HARMS:", player.harms)
             if player.deal > 0 and not player.dead:
-                if player.session is not None:
+                if player.session is not None or self.fdIncludeBots:
                     if self.inningCount == -1 and self.forceInitialDeal is not None:
                         for item in self.forceInitialDeal[:player.deal]:
                             player.dealItem(item)
@@ -467,6 +453,8 @@ class Room:
 
     def beforeEndInning(self) -> bool:
         self.handlePlayersDeath()
+        self.handlePlayersUnillusion()
+        self.handlePlayersUnfog()
             
         if not self.turn.attackQueue.empty():
             return False
@@ -498,33 +486,33 @@ class Room:
                 
                 if random.randrange(100) < 30:
                     print(f"{player.name} assistant attack!")
-                    piece = [self.server.itemManager.getProbRandomAssistantItem(player.assistantType)]
+                    itemList = [self.server.itemManager.getProbRandomAssistantItem(player.assistantType)]
 
                     if player.assistantType == "EARTH":
                         newItem = self.server.itemManager.getProbRandomItems(1)[0]
-                        piece.append(newItem)
+                        itemList.append(newItem)
                         if newItem.type != "MAGIC" and newItem.attackKind != "EXCHANGE":
                             if newItem.attackKind == "SELL":
-                                piece = [newItem, self.server.itemManager.getProbRandomItems(1)[0]]
+                                itemList = [newItem, self.server.itemManager.getProbRandomItems(1)[0]]
                             elif newItem.attackKind in ["ATK", "BUY"]:
-                                piece = [newItem]
+                                itemList = [newItem]
                     elif player.assistantType == "MOON":
                         newItem = None
                         # TODO: This should be optimized somehow
                         while newItem is None or newItem.type != "MAGIC" or newItem.defenseExtra == "FLICK_MAGIC" or newItem.defenseExtra == "BLOCK_WEAPON" or newItem.attackKind == "SET_ASSISTANT":
                             newItem = self.server.itemManager.getProbRandomItems(1)[0]
                         if newItem.attackExtra == "WIDE_ATK" or newItem.attackExtra == "DOUBLE_ATK":
-                            piece.append(newItem)
+                            itemList.append(newItem)
                         else:
-                            piece = [newItem]
+                            itemList = [newItem]
                                 
                     target = player
-                    if (piece[0].attackKind == "ATK" and piece[0].hitRate == 0) or piece[0].attackKind in ["SELL", "BUY", "ABSORB_YEN", "ADD_HARM", "REMOVE_ITEMS", "REMOVE_ABILITIES"]:
+                    if (itemList[0].attackKind == "ATK" and itemList[0].hitRate == 0) or itemList[0].attackKind in ["SELL", "BUY", "ABSORB_YEN", "ADD_HARM", "REMOVE_ITEMS", "REMOVE_ABILITIES"]:
                         target = self.getRandomAliveEnemy(player)
-                    elif (piece[0].attackKind == "INCREASE_MP" and not piece[0].isAtkHarm()) or piece[0].attackKind in ["INCREASE_HP", "INCREASE_YEN", "REMOVE_LOWER_HARMS", "REMOVE_ALL_HARMS", "ADD_ITEM", "SET_ASSISTANT"]:
+                    elif (itemList[0].attackKind == "INCREASE_MP" and not itemList[0].isAtkHarm()) or itemList[0].attackKind in ["INCREASE_HP", "INCREASE_YEN", "REMOVE_LOWER_HARMS", "REMOVE_ALL_HARMS", "ADD_ITEM", "SET_ASSISTANT"]:
                         target = self.getRandomAliveAlly(player, False)
                         
-                    newAttack = AttackData(player, target, piece)
+                    newAttack = AttackData(player, target, [CommandPiece(item) for item in itemList])
                     newAttack.assistantType = player.assistantType
                     self.turn.queueAttack(newAttack, True)
                     
@@ -572,7 +560,7 @@ class Room:
             self.startInning()
             
             if self.turn.attacker.aiProcessor is not None:
-                self.turn.queueAttack(self.turn.attacker.aiProcessor.onAttackTurn())
+                self.turn.attackerCommand(self.turn.attacker, *self.turn.attacker.aiProcessor.onAttackTurn())
                 continue
             
             # Player input is required to proceed.

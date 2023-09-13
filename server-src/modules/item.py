@@ -64,6 +64,39 @@ class Item:
 
     def isDefHarm(self) -> bool:
         return self.defenseExtra in ["COLD", "FEVER", "HELL", "HEAVEN", "FOG", "ILLUSION", "GLORY", "DARK_CLOUD"]
+    
+    def canBeAffectedByIllusion(self) -> bool:
+        if self.type in ["TRADE", "MAGIC"]:
+            return False
+        return True
+
+    def isSimilarTo(self, other: 'Item') -> bool:
+        if self.type in ["TRADE", "MAGIC"]:
+            return False
+        elif self.defenseKind != other.defenseKind:
+            return False
+        elif self.hitRate > 0 and other.hitRate == 0:
+            return False
+        elif self.attackExtra in ["MAGIC_FREE", "MAGICAL", "PESTLE"] and other.attackExtra != self.attackExtra:
+            return False
+        elif self.attackExtra in ["INCREASE_ATK", "ADD_ATTRIBUTE"] and other.attackExtra not in ["INCREASE_ATK", "ADD_ATTRIBUTE"]:
+            return False
+        elif self.attackExtra in ["REVIVE", "MORTAR"] and other.attackExtra not in ["REVIVE", "MORTAR"]:
+            return False
+        elif self.attribute != "" and self.defenseKind in ["DFS", "COUNTER"] and other.attribute != self.attribute:
+            return False
+        elif self.defenseExtra in ["REMOVE_ATTRIBUTE", "REFLECT_ANY"] and other.defenseExtra != self.defenseExtra:
+            return False
+        elif self.defenseExtra in ["REFLECT_WEAPON", "FLICK_WEAPON", "BLOCK_WEAPON"] and \
+             other.defenseExtra not in ["REFLECT_WEAPON", "FLICK_WEAPON", "BLOCK_WEAPON"]:
+             return False
+        elif self.defenseExtra in ["REFLECT_MAGIC", "FLICK_MAGIC", "BLOCK_MAGIC"] and \
+             other.defenseExtra not in ["REFLECT_MAGIC", "FLICK_MAGIC", "BLOCK_MAGIC"]:
+             return False
+        return True
+    
+    def isReplaceableBy(self, other: 'Item') -> bool:
+        return self.isSimilarTo(other) and other.isSimilarTo(self)
 
     def getAtk(self) -> int:
         if self.attackKind == "ATK":
@@ -89,6 +122,7 @@ class Item:
 
 class ItemManager:
     items: list[Item]
+    itemsByType: dict[str, list[Item]]
     itemsProbabilities: numpy.ndarray
     assistantItems: dict[str, list[Item]]
     assistantItemsProbabilities: dict[str, numpy.ndarray]
@@ -98,6 +132,7 @@ class ItemManager:
 
     def __init__(self, dataFilename: str, assistantDataFilename: str):
         self.items = list()
+        self.itemsByType = dict()
         self.assistantItems = dict()
         self.randGen = numpy.random.default_rng()
 
@@ -111,14 +146,18 @@ class ItemManager:
         for item in self.items:
             if item.id == id:
                 return item
-        assert False, "Tried to get innexistant item"
+        assert False, "Tried to get inexistent item"
 
-    def getRandomItem(self, types: list[str]) -> Item:
-        item = None
-        while item is None:
-            chosen = self.items[random.randrange(len(self.items))]
-            item = chosen if chosen.type in types else None
-        return item
+    def getIllusionForItem(self, id: int) -> int:
+        item = self.getItem(id)
+        itemsOfSameType = list(self.itemsByType[item.type])
+        random.shuffle(itemsOfSameType)
+        for chosen in itemsOfSameType:
+            if item.id == chosen.id or chosen.weight == 0:
+                continue
+            if item.isReplaceableBy(chosen):
+                return chosen.id
+        return id
 
     def getProbRandomItems(self, count: int) -> list[Item]:
         if count == 0:
@@ -135,6 +174,7 @@ class ItemManager:
             for line in f:
                 item = Item.fromData(len(self.items), line.rstrip("\n").split(","))
                 self.items.append(item)
+                self.itemsByType.setdefault(item.type, []).append(item)
                 itemWeights.append(item.weight)
 
         self.itemsProbabilities = numpy.array(list(map(float, itemWeights)))

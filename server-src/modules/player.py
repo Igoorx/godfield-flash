@@ -1,11 +1,13 @@
 from __future__ import annotations
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING, Optional, Iterator
 if TYPE_CHECKING:
     from server import Server
     from modules.session import Session
     from modules.room import Room
-from helpers.xmlbuilder import XMLBuilder
+    from modules.item import Item
+from helpers.xmlbuilder import XMLBuilder, XMLNode
 from modules.bot import AIProcessor
+from modules.commandPiece import CommandPiece
 
 import random
 
@@ -31,10 +33,12 @@ class Player:
     harms: list[str]
     deal: int
     magics: list[int]
-    items: list[int]
+    pieces: list[CommandPiece]
     assistantType: str
     assistantHP: int
     aiProcessor: Optional[AIProcessor]
+    pendingUnillusion: bool
+    pendingUnfog: bool
 
     __slots__ = tuple(__annotations__)
 
@@ -79,10 +83,13 @@ class Player:
         self.deal = 10
 
         self.magics = list()
-        self.items = list()
+        self.pieces = list()
 
         self.assistantType = str()
         self.assistantHP = 0
+
+        self.pendingUnillusion = False
+        self.pendingUnfog = False
 
     def isEnemy(self, other: Player):
         return other != self and (other.team == "SINGLE" or other.team != self.team)
@@ -151,7 +158,7 @@ class Player:
         if harm in diseases:
             if self.disease:
                 if self.disease == "HEAVEN":
-                    print("FALL FROM THE HEAVEN")
+                    print(f"\"{self.name}\": FALL FROM THE HEAVEN!")
                     self.hp = 0
                     self.assistantType = ""
                     self.assistantHP = 0
@@ -165,9 +172,33 @@ class Player:
             self.harms.append(harm)
         print(f"\"{self.name}\": Current Harm: {self.harms}, Current Disease: {self.disease}")
 
+    def unillusionPieces(self):
+        builder = XMLBuilder("UNILLUSION")
+        for piece in self.pieces:
+            if piece.illusionItem is None:
+                continue
+            piece.writeXML(builder.item)
+            piece.illusionItem = None
+        if self.session is not None:
+            self.session.sendXml(builder)
+        self.pendingUnillusion = False
+
+    def unfog(self):
+        builder = XMLBuilder("UNFOG")
+        for player in self.room.players:
+            player.writeXML(builder.player)
+        builder.inningAttacker(self.room.turn.attacker.name if self.room.turn.currentAttack is None else self.room.turn.currentAttack.attacker.name)
+        if self.session is not None:
+            self.session.sendXml(builder)
+        self.pendingUnfog = False
+
     def removeAllHarms(self, onlyLower: bool = False):
         if not onlyLower:
-            print("Remove all harms")
+            print(f"\"{self.name}\": Remove all harms")
+            if "ILLUSION" in self.harms:
+                self.pendingUnillusion = True
+            if "FOG" in self.harms:
+                self.pendingUnfog = True
             self.disease = ""
             self.worseChance = 0
             self.harms = []
@@ -178,57 +209,65 @@ class Player:
             self.disease = ""
             self.worseChance = 0
         if "FOG" in self.harms:
-            # TODO: Properly implement "UNFOG"
             self.harms.remove("FOG")
+            self.pendingUnfog = True
         if "GLORY" in self.harms:
             self.harms.remove("GLORY")
 
-    def dealItem(self, id: int, noXml: bool = False) -> bool:
+    def dealItem(self, id: int, isAction: bool = False) -> bool:
         assert id in self.server.itemManager
 
-        if len(self.items) == 16:
+        if len(self.pieces) == 16:
             print(f"{self.name} deal failed because hand is full")
             return False
         
         print(f"{self.name} deal {id}")
-        self.items.append(id)
+        piece = CommandPiece(self.server.itemManager.getItem(id))
 
-        if not noXml and self.session is not None:
+        if "ILLUSION" in self.harms and piece.item.canBeAffectedByIllusion() and not isAction:
+            illusionId = id
+            if random.randrange(0, 2) == 1:
+                illusionId = self.server.itemManager.getIllusionForItem(id)
+            piece.illusionItem = self.server.itemManager.getItem(illusionId)
+            if illusionId != id:
+                print(f"{self.name} previous deal was afflicted by illusion and became {illusionId}")
+        
+        self.pieces.append(piece)
+
+        if not isAction and self.session is not None:
             builder = XMLBuilder("DEAL")
-            builder.item(str(id))
+            builder.item(str(piece.getItemOrIllusion().id))
             self.session.sendXml(builder)
         
         return True
-
-    def hasItem(self, id: int) -> bool:
-        return id in self.items
-
-    def hasAttackKind(self, kind: str) -> bool:
-        for id in self.items:
-            item = self.server.itemManager.getItem(id)
-            if item.attackKind == kind:
-                return True
-        return False
+    
+    def hasOwnedPiece(self, ownedPiece: CommandPiece) -> bool:
+        return ownedPiece in self.pieces
 
     def hasMagic(self, id: int) -> bool:
         return id in self.magics
+    
+    def getItems(self, bypassIllusion: bool = True) -> Iterator[Item]:
+        for piece in self.pieces:
+            yield piece.item if bypassIllusion or piece.illusionItem is None else piece.illusionItem
 
-    def getRandomItem(self) -> int:
-        if len(self.items) == 0:
-            return 0
-        return random.choice(self.items)
+    def getRandomPiece(self) -> Optional[CommandPiece]:
+        if len(self.pieces) == 0:
+            return None
+        return random.choice(self.pieces)
 
     def getRandomMagic(self) -> int:
         if len(self.magics) == 0:
             return 0
         return random.choice(self.magics)
 
-    def discardItem(self, id: int) -> bool:
-        if not self.hasItem(id):
-            assert False, f"\"{self.name}\" tried to discard item (id {id}) that he doesn't have"
+    def discardPiece(self, ownedPiece: CommandPiece) -> bool:
+        if not self.hasOwnedPiece(ownedPiece):
+            print(self.pieces)
+            assert False, f"\"{self.name}\" tried to discard piece ({ownedPiece}) that he doesn't have"
         
-        print(f"{self.name} discard item {id}")
-        self.items.remove(id)
+        print(f"{self.name} discard piece {ownedPiece}")
+        self.pieces.remove(ownedPiece)
         return True
 
     def discardMagic(self, id: int) -> bool:
@@ -238,32 +277,72 @@ class Player:
         print(f"{self.name} discard magic {id}")
         self.magics.remove(id)
         return True
+    
+    def getOwnedPieceById(self, id: int) -> Optional[CommandPiece]:
+        return next((piece for piece in self.pieces if piece.item.id == id), None)
+    
+    def getOwnedPiece(self, otherPiece: CommandPiece, exceptPieces: list[CommandPiece] = []) -> Optional[CommandPiece]:
+        if otherPiece.illusionItemIndex != -1:
+            illusionIndex = 0
+            for piece in self.pieces:
+                if piece.illusionItem is not None and piece.illusionItem.id == otherPiece.item.id:
+                    if illusionIndex == otherPiece.illusionItemIndex and piece not in exceptPieces:
+                        return piece
+                    illusionIndex += 1
+            return None
+        else:
+            return next((piece for piece in self.pieces if piece.item.id == otherPiece.item.id and piece.illusionItem is None and piece not in exceptPieces), None)
 
-    def useItem(self, id: int, noMPCost: bool):
-        if not self.hasItem(id):
-            print(self.items)
-            assert False, f"\"{self.name}\" tried to use an item (id {id}) that he doesn't have"
+    def usePiece(self, ownedPiece: CommandPiece, noMPCost: bool):
+        if not self.hasOwnedPiece(ownedPiece):
+            print(self.pieces)
+            assert False, f"\"{self.name}\" tried to use an piece ({ownedPiece}) that he doesn't have"
         
-        item = self.server.itemManager.getItem(id)
+        item = ownedPiece.item
         if item.type == "FIXED":
             # FIXED artifacts are eternal.
             pass
         elif item.type == "MAGIC":
             assert noMPCost or self.mp >= item.subValue, f"\"{self.name}\" tried to use magic (id {id}) with not enough MP ({self.mp} < {item.subValue})"
-            self.magics.append(id)
-            self.items.remove(id)
+            self.magics.append(ownedPiece.item.id)
+            self.pieces.remove(ownedPiece)
             if not noMPCost:
                 self.mp -= item.subValue
         else:
-            self.items.remove(id)
+            self.pieces.remove(ownedPiece)
 
-    def tryUseMagic(self, id: int, noMPCost: bool) -> bool:
+    def useMagic(self, id: int, noMPCost: bool):
         if not self.hasMagic(id):
-            return False
+            print(self.magics)
+            assert False, f"\"{self.name}\" tried to use an magic ({id}) that he doesn't have"
         
         item = self.server.itemManager.getItem(id)
         assert noMPCost or self.mp >= item.subValue, f"\"{self.name}\" tried to use magic (id {id}) with not enough MP ({self.mp} < {item.subValue})"
         
         if not noMPCost:
             self.mp -= item.subValue
-        return True
+    
+    def writeXML(self, bPlayer: XMLNode):
+        bPlayer.name(self.name)
+        bPlayer.team(self.team)
+        if self.ready:
+            bPlayer.isReady  # <isReady />
+        if self.dead:
+            bPlayer.isDead  # <isDead />
+        if self.lost:
+            bPlayer.isLost
+        if self.finished:
+            bPlayer.isFinished
+        if self.waitingAttackTurn:
+            bPlayer.isWaitingAttackTurn
+        bPlayer.power(key="HP")(str(self.hp))
+        bPlayer.power(key="MP")(str(self.mp))
+        bPlayer.power(key="YEN")(str(self.yen))
+        if self.disease:
+            bPlayer.disease(self.disease)
+        for harm in self.harms:
+            bPlayer.harm(harm)
+        if self.assistantType:
+            bAssistant = bPlayer.assistant
+            bAssistant.type(self.assistantType)
+            bAssistant.hp(str(self.assistantHP))

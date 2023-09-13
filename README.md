@@ -14,20 +14,19 @@ This server emulator is not nearly perfect, but it works! (as shown in the video
 - The artifacts distribution may not be not how it should be (needs research).
 - Bots are not very smart, they just thrown the artifacts that he can use at the moment. (And was programmed to)
 - The "Fog" curse isn't implemented correctly yet.
-- The "Illusion" curse isn't implemented correctly yet.
 - The client backup may not be complete.
   - The backup was done by playing the game and downloading what was requested by the game, so maybe I didn't get everything, and I surely didn't get files from disabled game modes.
 
 https://user-images.githubusercontent.com/14041768/159081100-ff837b56-2b9d-4c80-a722-9e6e32924994.mp4
 
-## Requirements
-
-To run the server emulator, you will need <b>Python 3.9+</b>. You can install all dependencies using the `requirements.txt`, don't know how? [Click here to see more about the requirements file.](https://pip.pypa.io/en/stable/user_guide/#requirements-files)
-
 ## Flash is dead! Now what?
 
 This repository contains the old God Field that was written in Flash, however flash isn't supported by most browsers anymore, but don't worry, it is still possible to run God Field if you use some browser that still has support for it or if you run the game's swf directly via Flash Projector.
 [You can download the Flash Projector here.](https://fpdownload.macromedia.com/pub/flashplayer/updaters/32/flashplayer_32_sa.exe)
+
+## Requirements
+
+To run the server emulator, you will need <b>Python 3.9+</b>. You can install all dependencies using the `requirements.txt`, don't know how? [Click here to see more about the requirements file.](https://pip.pypa.io/en/stable/user_guide/#requirements-files)
 
 ## Quick set-up
 
