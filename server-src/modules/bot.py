@@ -765,13 +765,31 @@ class AIProcessor:
 
                 if damage <= 0:
                     break
-
-            if self.player.hp <= damage:
-                # We will die, so let's maximize counter efficiency
-                defPiece = self.getCounterRings(attr)
-            elif damage > 2 or (self.player.hp < 30 and damage > 0):
+            
+            if damage >= 0:
                 rings = self.getCounterRings(attr)
-                defPiece += rings
+                if self.player.hp <= damage:
+                    # We will die, so let's try to maximize counter efficiency
+                    defPiece = rings if len(rings) > 0 else defPiece
+                else:
+                    ringConditions = {
+                        # ItemID: Min Value or Condition
+                        187: (4,  lambda piece, ringValue: self.canBeInstantlyKilledBy(attacker, piece, ringValue)), # FIRE ATK
+                        190: (8,  lambda piece, ringValue: self.canBeInstantlyKilledBy(attacker, piece, ringValue)), # SOIL ATK (x2)
+                        193: (10, lambda _, ringValue:     self.getMaxMPForMagic(self.player) <= ringValue), # INCREASE_MP (x2)
+                        194: (5, lambda _, ringValue:     attacker.hp + attacker.mp + attacker.yen <= ringValue) # ABSORB_YEN
+                    }
+
+                    for piece in rings:
+                        item = piece.getItemOrIllusion()
+                        if item.id not in ringConditions:
+                            if item.attackKind != "ADD_HARM" or item.attackExtra not in attacker.harms:
+                                defPiece.append(piece)
+                        else:
+                            minValue, condition = ringConditions[item.id]
+                            ringValue = damage if item.id not in [190, 193] else damage * 2
+                            if ringValue >= minValue or condition(piece, ringValue):
+                                defPiece.append(piece)
 
         if len(ret) == (1 if attrRemoved else 0) and counter and (damage >= 5 or self.player.hp <= 15 or self.player.hp <= damage or any(piece.item.isAtkHarm() for piece in self.room.turn.currentAttack.pieceList)):
             ret.append(counter)
