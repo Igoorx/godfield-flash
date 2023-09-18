@@ -246,9 +246,11 @@ class TurnHandler:
                     atkData.damage = 0
                 atkData.damage += item.getAtk()
             elif item.attackExtra == "DOUBLE_ATK":
+                assert atkData.attribute is not None
                 assert atkData.damage >= 0 and len(atkData.pieceList) > 1, "Tried to use DOUBLE_ATK alone"
                 atkData.damage *= 2
             elif item.attackExtra == "WIDE_ATK":
+                assert atkData.attribute is not None
                 assert atkData.damage >= 0 and len(atkData.pieceList) > 1, "Tried to use WIDE_ATK alone"
                 massiveAttack = True
                 atkData.chance = 100
@@ -577,6 +579,7 @@ class TurnHandler:
                 usedMagic = True
 
             if item.id == 195:  # REMOVE_ATTRIBUTE
+                assert atkData.attribute is not None
                 atkData.attribute = ""
                 self.currentAttack.attribute = ""
 
@@ -670,6 +673,8 @@ class TurnHandler:
         if reflected or blocked or flicked:
             # Check if that attack could really be defended
             if pieceList[0].item.defenseExtra != "REFLECT_ANY" and atkData.pieceList[0].item.type != "MAGIC":
+                assert atkData.attribute != "DARK"
+                assert atkData.pieceList[0].item.defenseKind != "COUNTER"
                 assert Item.checkDefense(atkData.attribute, defenseAttr), f"Invalid defense used! (Attack Attr: {atkData.attribute}, Def Attr: {defenseAttr})"
 
             if blocked or atkData.defender.dead:

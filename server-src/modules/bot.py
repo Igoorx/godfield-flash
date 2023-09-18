@@ -160,36 +160,37 @@ class AIProcessor:
             items.append(piece)
         return items
 
-    def getCounterPiece(self, forAttribute: Optional[str], isCounterAttack: bool, isMagicAttack: bool, isWeaponAttack: bool) -> Optional[CommandPiece]:
+    def getCounterPieces(self, forAttribute: Optional[str], isCounterAttack: bool, isMagicAttack: bool, isWeaponAttack: bool) -> list[CommandPiece]:
+        items: list[CommandPiece] = []
         for piece in self.player.pieces:
             item = piece.getItemOrIllusion()
             if item.type == "MAGIC" and self.player.mp < item.subValue:
                 continue
             if item.defenseExtra == "REFLECT_ANY":
-                return piece
+                items.append(piece)
             if (not item.hasSpecialMagicDefense() or not isMagicAttack) and \
                 (not item.hasSpecialWeaponDefense() or not isWeaponAttack):
                 continue
-            if forAttribute is None or isCounterAttack:
+            if forAttribute is None or forAttribute == "DARK" or isCounterAttack:
                 continue
             elif "WEAPON" in item.defenseExtra and not Item.checkDefense(forAttribute, item.attribute):
                 continue
-            return piece
+            items.append(piece)
         for id in self.player.magics:
             item = self.server.itemManager.getItem(id)
             if self.player.mp < item.subValue:
                 continue
             if item.defenseExtra == "REFLECT_ANY":
-                return CommandPiece(item, True)
+                items.append(CommandPiece(item, True))
             if (not item.hasSpecialMagicDefense() or not isMagicAttack) and \
                 (not item.hasSpecialWeaponDefense() or not isWeaponAttack):
                 continue
-            if forAttribute is None or isCounterAttack:
+            if forAttribute is None or forAttribute == "DARK" or isCounterAttack:
                 continue
             elif "WEAPON" in item.defenseExtra and not Item.checkDefense(forAttribute, item.attribute):
                 continue
-            return CommandPiece(item, True)
-        return None
+            items.append(CommandPiece(item, True))
+        return items
 
     def checkIsItemBadToSell(self, item: Item) -> bool:
         reallyNeedsMoney = self.player.hp <= 14 and self.player.yen <= 2
@@ -701,7 +702,7 @@ class AIProcessor:
         attacker = self.room.turn.currentAttack.attacker
         damage = self.room.turn.currentAttack.damage
         attr = self.room.turn.currentAttack.attribute
-        print("Attacker:", attacker, "| Damage:", damage, "| Attr:", attr)
+        print("Damage:", damage, "| Attr:", attr, "| Attacker:", attacker)
 
         if damage <= 0:
             # TODO: Try to reflect, flick or block
@@ -713,26 +714,37 @@ class AIProcessor:
         print("Counter:", isCounterAttack, "| Magic:", isMagicAttack, "| Weapon:", isWeaponAttack)
 
         protectors = self.getDefensePieces(attr) if attr is not None else []
-        counter = self.getCounterPiece(attr, isCounterAttack, isMagicAttack, isWeaponAttack)
+        counters = self.getCounterPieces(attr, isCounterAttack, isMagicAttack, isWeaponAttack)
+        lastResortCounter: Optional[CommandPiece] = None
 
         attrRemoved = False
-        if "GLORY" not in self.player.harms and attr and (removeAttributePiece := self.player.getOwnedPieceById(195)) is not None and not protectors and not counter:
+        if "GLORY" not in self.player.harms and attr and (removeAttributePiece := self.player.getOwnedPieceById(195)) is not None and not protectors and not counters:
             protectors_ne = self.getDefensePieces("")
-            counter_ne = self.getCounterPiece("", isCounterAttack, isMagicAttack, isWeaponAttack)
-            if protectors_ne or counter_ne:
+            counters_ne = self.getCounterPieces("", isCounterAttack, isMagicAttack, isWeaponAttack)
+            if protectors_ne or counters_ne:
                 # We can use NE protectors or counters, so lets erase the attribute with the wings.
                 protectors = protectors_ne
-                counter = counter_ne
+                counters = counters_ne
                 attr = ""
                 attrRemoved = True
                 ret.append(removeAttributePiece)
 
-        if counter and (damage >= 15 or self.room.turn.currentAttack.attacker.hp <= damage or any(piece.item.isAtkHarm() for piece in self.room.turn.currentAttack.pieceList)):
-            ret.append(counter)
-            return ret
+        if counters:
+            # Early counter, we only return here if countering is clearly a good choice.
+            for counter in counters:
+                isWorthForDamage = damage >= counter.item.getAtk() if counter.item.getAtk() else 10
+                if isWorthForDamage or self.player.hp <= 15 or self.player.hp <= damage or attr == "DARK" or any(piece.item.isAtkHarm() for piece in self.room.turn.currentAttack.pieceList):
+                    if lastResortCounter is None or "FLICK" in lastResortCounter.item.defenseExtra:
+                        lastResortCounter = counter
+                if "FLICK" in counter.item.defenseExtra:
+                    continue
+                attackerCanDie = self.room.turn.currentAttack.attacker.hp <= damage and "REFLECT" in counter.item.defenseExtra
+                if damage >= 15 or attackerCanDie or any(piece.item.isAtkHarm() for piece in self.room.turn.currentAttack.pieceList):
+                    ret.append(counter)
+                    return ret
 
         if isCounterAttack:
-            # This is a counter-attack so ignore defense items
+            # This is a counter-attack so we can't use defense items
             return ret
 
         defPiece: list[CommandPiece] = []
@@ -748,11 +760,13 @@ class AIProcessor:
                         continue
                 defPiece.append(piece)
                 damage -= item.getDef()
-
                 if damage <= 0:
                     break
+
+            if attr == "DARK" and damage > 0:
+                damage = 999
             
-            if damage >= 0:
+            if damage > 0 and (lastResortCounter is None or self.player.hp > damage):
                 rings = self.getCounterRings(attr)
                 if self.player.hp <= damage:
                     # We will die, so let's try to maximize counter efficiency
@@ -777,11 +791,21 @@ class AIProcessor:
                             if ringValue >= minValue or condition(piece, ringValue):
                                 defPiece.append(piece)
 
-        if len(ret) == (1 if attrRemoved else 0) and counter and (damage >= 5 or self.player.hp <= 15 or self.player.hp <= damage or any(piece.item.isAtkHarm() for piece in self.room.turn.currentAttack.pieceList)):
-            ret.append(counter)
-            return ret
-
         ret += defPiece
+
+        if lastResortCounter is not None:
+            if len(ret) == (1 if attrRemoved else 0):
+                # We have no defense items so let's try to counter if possible.
+                ret.append(lastResortCounter)
+                return ret
+            elif self.player.hp <= damage:
+                # We have defense items but we will end up dying anyway...
+                for piece in protectors:
+                    if piece in ret:
+                        ret.remove(piece)
+                ret.append(lastResortCounter)
+                assert len(ret) == (2 if attrRemoved else 1)
+                return ret
 
         if len(ret) == 1 and attr != "DARK" and ret[0].item.id == 195:
             ret = []

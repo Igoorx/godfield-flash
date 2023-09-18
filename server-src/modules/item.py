@@ -138,11 +138,14 @@ class Item:
 
     @staticmethod
     def checkDefense(attackAttr: Optional[str], defenseAttr: Optional[str]):
+        if attackAttr is None:
+            return False
+        
         if not attackAttr or attackAttr == "DARK":
             return True
 
         if not defenseAttr:
-            return attackAttr == "DARK"
+            return False
 
         defenseMapping = {
             "FIRE": ["WATER", "LIGHT"],
