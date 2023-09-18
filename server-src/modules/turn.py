@@ -112,6 +112,7 @@ class TurnHandler:
 
         massiveAttack = False
         usedMagic = False
+        magicalPiece: Optional[CommandPiece] = None
 
         if not forced:
             self.convertPiecesToOwnedPieces(atkData.attacker, atkData.pieceList)
@@ -143,6 +144,9 @@ class TurnHandler:
 
             if item.type == "MAGIC":
                 usedMagic = True
+                if magicalPiece is not None and not isMagicFree:
+                    magicalPiece.costMP = atkData.attacker.mp
+                    atkData.damage = atkData.attacker.mp * 2
 
             if usedMagic and item.attackExtra == "MAGIC_FREE":
                 continue
@@ -251,9 +255,9 @@ class TurnHandler:
                 atkData.attribute = ""
             elif item.attackExtra == "MAGICAL":
                 if atkData.assistantType is None:
-                    piece.costMP = atkData.attacker.mp
+                    magicalPiece = piece
+                    magicalPiece.costMP = atkData.attacker.mp
                     atkData.damage = atkData.attacker.mp * 2
-                    atkData.attacker.mp = 0
                 else:
                     piece.costMP = 100
                     atkData.damage = 200
@@ -298,6 +302,9 @@ class TurnHandler:
                 atkData.attribute = item.attribute
             elif atkData.attribute != item.attribute and item.attribute != "LIGHT":
                 atkData.attribute = ""
+
+        if magicalPiece is not None:
+            atkData.attacker.mp = 0
 
         if massiveAttack:
             assert not atkData.isAction and atkData.chance > 0
