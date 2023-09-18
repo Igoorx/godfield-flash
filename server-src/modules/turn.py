@@ -103,13 +103,13 @@ class TurnHandler:
             atkData.defender = getRandomAlive(atkData.attacker)
             print(f"Attack target changed to: {atkData.defender}")
 
-        magicFreeIdxList = []
-        for idx in (i for i, piece in enumerate(atkData.pieceList) if piece.item.attackExtra == "MAGIC_FREE"):
-            for itemIdx in reversed(range(idx)):
-                if atkData.pieceList[itemIdx].item.type == "MAGIC":
-                    magicFreeIdxList.append(itemIdx)
-                    break
-        
+        magicFreeIdxList: list[int] = []
+        for idx, piece in enumerate(atkData.pieceList):
+            if idx > 0 and piece.item.attackExtra == "MAGIC_FREE":
+                assert idx - 1 not in magicFreeIdxList
+                magicFreeIdxList.append(idx - 1)
+                break
+
         massiveAttack = False
         usedMagic = False
 
@@ -536,25 +536,25 @@ class TurnHandler:
         atkData = self.currentAttack.clone()
         assert player == atkData.defender
 
-        blocked = False
-        reflected = False
-        flicked = False
-
-        magicFreeIdxList: list[int] = []
-        for idx in (i for i, piece in enumerate(pieceList) if piece.item.attackExtra == "MAGIC_FREE"):
-            for itemIdx in reversed(range(idx)):
-                if pieceList[itemIdx].item.type == "MAGIC":
-                    magicFreeIdxList.append(itemIdx)
-                    break
-
-        usedMagic = False
-        defenseAttr: Optional[str] = None
-
         print("New Defender Command!")
         print("Used:", str(pieceList))
 
         self.convertPiecesToOwnedPieces(player, pieceList)
         print("Used (Owned):", str(pieceList))
+
+        magicFreeIdxList: list[int] = []
+        for idx, piece in enumerate(pieceList):
+            if idx > 0 and piece.item.attackExtra == "MAGIC_FREE":
+                assert idx - 1 not in magicFreeIdxList
+                magicFreeIdxList.append(idx - 1)
+                break
+
+        blocked = False
+        reflected = False
+        flicked = False
+
+        usedMagic = False
+        defenseAttr: Optional[str] = None
 
         for idx, piece in enumerate(pieceList):
             item = piece.item

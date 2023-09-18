@@ -110,13 +110,14 @@ class AIProcessor:
                 items.append(CommandPiece(item, True))
         return items
 
-    def getPiecesDamage(self, pieces: list[CommandPiece]) -> int:
-        damage = 0
-        for piece in pieces:
+    def getPiecesDamage(self, damage: int, pieces: list[CommandPiece]) -> int:
+        for idx, piece in enumerate(pieces):
             item = piece.getItemOrIllusion()
+            if idx > 0 and item.attackExtra == "MAGIC_FREE" and pieces[idx - 1].item.type == "MAGIC":
+                continue
             if item.attackExtra == "MAGICAL":
                 damage = self.player.mp * 2
-            if item.attackExtra == "DOUBLE_ATK":
+            elif item.attackExtra == "DOUBLE_ATK":
                 damage *= 2
             else:
                 damage += item.getAtk()
@@ -219,41 +220,6 @@ class AIProcessor:
             if item.type == "MAGIC":
                 maxMP = max(item.subValue, maxMP)
         return maxMP
-
-    def exceedsMaxMP(self, pieces: list[CommandPiece]):
-        mpCost = 0
-        for piece in list(pieces):
-            item = piece.getItemOrIllusion()
-            if item.attackExtra == "MAGICAL":
-                mpCost = 99
-            if item.type == "MAGIC":
-                mpCost += item.subValue
-                if mpCost > self.player.mp:
-                    return True
-        return False
-
-    # Kind of a hack to avoid multiple magics surpassing the mp limit
-    def removeExcessMagic(self, pieces: list[CommandPiece], precomputedDamage: int) -> int:
-        attackScale = 1
-        for piece in pieces:
-            item = piece.getItemOrIllusion()
-            if item.type == "MAGIC" and item.attackExtra == "DOUBLE_ATK":
-                attackScale *= 2
-        mpCost = 0
-        for piece in list(pieces):
-            item = piece.getItemOrIllusion()
-            if item.attackExtra == "MAGICAL":
-                mpCost = 99
-            if item.type == "MAGIC":
-                mpCost += item.subValue
-                if mpCost > self.player.mp:
-                    pieces.remove(piece)
-                    if item.attackExtra == "DOUBLE_ATK":
-                        precomputedDamage //= 2
-                        attackScale //= 2
-                    else:
-                        precomputedDamage -= item.getAtk() // attackScale
-        return precomputedDamage
 
     def getAllies(self) -> Iterator[Player]:
         yield self.player
@@ -559,53 +525,59 @@ class AIProcessor:
                         else:
                             if len(pieces) == 0:
                                 pieces.append(piece)
-                                if item.attackExtra == "MAGICAL":
-                                    damage = self.player.mp * 2
-                                else:
-                                    damage = item.getAtk()
+                                damage = item.getAtk() if item.attackExtra != "MAGICAL" else self.player.mp * 2
                                 isSpecialAttr = item.attribute in ["DARK", "LIGHT"]
 
+                                doubleAtk = self.getPiecesByAE("DOUBLE_ATK")
+                                wideAtk = self.getPiecesByAE("WIDE_ATK")[1:]
                                 magicFree = self.getPiecesByAE("MAGIC_FREE")
+                                mpCost = 0 if item.attackExtra != "MAGICAL" else 99
 
                                 # TODO: Try to make it wait to stack a better attack, like with increase_atk and others extras
                                 # TODO: Only override item attribute if we can get a good damage doing so
                                 # TODO: If weapon or extras has ADD_HARM, try to stack as much damage as possible
 
+                                def appendPieces(newPieces: list[CommandPiece]):
+                                    nonlocal pieces, damage, mpCost
+                                    for piece in list(newPieces):
+                                        item = piece.getItemOrIllusion()
+                                        if item.type != "MAGIC":
+                                            if item.attackExtra == "MAGICAL":
+                                                mpCost = 99
+                                            continue
+                                        if item.attackExtra == "INCREASE_ATK" and len(doubleAtk) > 0:
+                                            # NOTE: This is a attempt to make the bot avoid wasting MP
+                                            newPieces.remove(piece)
+                                            continue
+                                        mpCost += item.subValue
+                                        if mpCost <= self.player.mp:
+                                            continue
+                                        if len(magicFree) == 0:
+                                            mpCost -= item.subValue
+                                            newPieces.remove(piece)
+                                            continue
+                                        newPieces.insert(newPieces.index(piece) + 1, magicFree.pop())
+                                    pieces += newPieces
+                                    damage = self.getPiecesDamage(damage, newPieces)
+
                                 if item.attackExtra != "INCREASE_ATK":
                                     if isSpecialAttr:
                                         increaseAtkAttrib = self.getPiecesByAE("INCREASE_ATK", item.attribute)
-                                        pieces += increaseAtkAttrib
-                                        damage += self.getPiecesDamage(increaseAtkAttrib)
+                                        appendPieces(increaseAtkAttrib)
                                     else:
                                         increaseAtk = self.getPiecesByAE("INCREASE_ATK")
-                                        pieces += increaseAtk
-                                        damage += self.getPiecesDamage(increaseAtk)
+                                        appendPieces(increaseAtk)
 
                                 if not isSpecialAttr:
-                                    doubleAtk = self.getPiecesByAE("DOUBLE_ATK")[1:]
-                                    if item.attackExtra != "DOUBLE_ATK" and len(doubleAtk) > 0:
-                                        if damage >= 10:
-                                            pieces += doubleAtk
-                                            damage *= 2
+                                    if len(doubleAtk) > 0 and damage >= 10:
+                                        appendPieces(doubleAtk)
 
                                     if item.attackExtra != "ADD_ATTRIBUTE":
                                         addAttribute = self.getPiecesByAE("ADD_ATTRIBUTE")[1:]
-                                        pieces += addAttribute
-                                        damage += self.getPiecesDamage(addAttribute)
+                                        appendPieces(addAttribute)
 
-                                    if len(magicFree) == 0:
-                                        damage = self.removeExcessMagic(pieces, damage)
-
-                                    if damage > 5 and self.room.getAliveCount() > 2:
-                                        wideAtk = self.getPiecesByAE("WIDE_ATK")
-                                        pieces += wideAtk
-                                        damage += self.getPiecesDamage(wideAtk)
-
-                                if self.exceedsMaxMP(pieces):
-                                    if len(magicFree) == 0:
-                                        damage = self.removeExcessMagic(pieces, damage)
-                                    else:
-                                        pieces.append(random.choice(magicFree))
+                                    if len(wideAtk) > 0 and damage >= 5 and self.room.getAliveCount() > 2:
+                                        appendPieces(wideAtk)
 
                             if self.canBeInstantlyKilledBy(target, pieces, damage):
                                 score = PieceScore.HIGH
