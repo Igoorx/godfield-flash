@@ -81,14 +81,15 @@ class AIProcessor:
 
         print(f"Enemy Stats: {self.enemyStats}")
 
-    def getPieceByAK(self, kind: str) -> Optional[CommandPiece]:
+    def getPiecesByAK(self, kind: str) -> list[CommandPiece]:
+        items: list[CommandPiece] = []
         for piece in self.player.pieces:
             item = piece.getItemOrIllusion()
             if item.type == "MAGIC" and self.player.mp < item.subValue:
                 continue
             if item.attackKind == kind:
-                return piece
-        return None
+                items.append(piece)
+        return items
 
     def getPiecesByAE(self, extra: str, attr: Optional[str] = None) -> list[CommandPiece]:
         items: list[CommandPiece] = []
@@ -157,7 +158,6 @@ class AIProcessor:
             if item.isAtkHarm():
                 harms.append(item.attackExtra)
             items.append(piece)
-
         return items
 
     def getCounterPiece(self, forAttribute: Optional[str], isCounterAttack: bool, isMagicAttack: bool, isWeaponAttack: bool) -> Optional[CommandPiece]:
@@ -191,17 +191,25 @@ class AIProcessor:
             return CommandPiece(item, True)
         return None
 
-    def checkIsItemGood(self, item: Item) -> bool:
+    def checkIsItemBadToSell(self, item: Item) -> bool:
+        reallyNeedsMoney = self.player.hp <= 14 and self.player.yen <= 2
+
         # Magics
         if item.type == "MAGIC":
             return True
 
         # Healers
-        if item.attackKind in ["INCREASE_HP", "INCREASE_MP", "REMOVE_ALL_HARMS", "REMOVE_LOWER_HARMS"]:
+        if item.attackKind in ["INCREASE_HP", "INCREASE_MP"]:
             return True
+        elif item.attackKind in ["REMOVE_ALL_HARMS"]:
+            if self.player.hasDisease() or not reallyNeedsMoney:
+                return True
+        elif item.attackKind in ["REMOVE_LOWER_HARMS"]:
+            if self.player.hasLowerDisease() or not reallyNeedsMoney:
+                return True
 
         # Goods
-        if item.attackExtra in ["SET_ASSISTANT", "INCREASE_ATK", "MAGIC_FREE", "REVIVE", "DYING_ATTACK"]:
+        if item.attackExtra in ["SET_ASSISTANT", "ADD_ATTRIBUTE", "INCREASE_ATK", "MAGIC_FREE", "REVIVE", "DYING_ATTACK"]:
             return True
 
         # Counters
@@ -453,48 +461,46 @@ class AIProcessor:
             elif item.type == "TRADE":
                 if item.attackKind == "EXCHANGE":
                     score = PieceScore.DISCARD
-                    if self.player.hp > 30 or self.player.mp != 0 or self.player.yen != 0:
+                    if self.player.hp > 30 or self.player.mp > 0 or self.player.yen > 0:
                         needsHP = self.player.hp < 20
                         needsMP = self.player.mp < 30 and (self.player.magics or any(item.type == "MAGIC" for item in self.player.getItems(False)))
-                        if needsHP or (needsMP and (self.player.yen > 0 or self.player.hp >= 50)):
+                        if needsHP or (needsMP and (self.player.yen > 4 or self.player.hp >= 50)):
                             score = PieceScore.CRITICAL if needsHP else PieceScore.MEDIUM
                     scores[score].append((self.player, piece))
                     continue
-
-                mostValuablePiece: Optional[CommandPiece] = None
-                pieceToSell: Optional[CommandPiece] = None
 
                 for target in self.getEnemies():
                     score = PieceScore.MEDIUM
 
                     if item.attackKind == "SELL":
-                        if pieceToSell is None:
-                            # Always try to sell mortars when we have one
-                            mortar = self.getPiecesByAE("MORTAR")
-                            if len(mortar) > 0:
+                        pieceToSell: Optional[CommandPiece] = None
+                        if len(mortar := self.getPiecesByAE("MORTAR")) > 0:
+                            # Try to sell mortars when we have one
+                            score = PieceScore.MEDIUM
+                            pieceToSell = mortar[0]
+                        else:
+                            deadlyPiece: Optional[CommandPiece] = None
+                            mostValuablePiece: Optional[CommandPiece] = None
+                            for _piece in self.player.pieces:
+                                _item = _piece.getItemOrIllusion()
+                                if _piece == piece:
+                                    continue
+                                if target.hp + target.mp + target.yen <= _item.price and (deadlyPiece is None or deadlyPiece.getItemOrIllusion().price > _item.price):
+                                    deadlyPiece = _piece
+                                if self.checkIsItemBadToSell(_item):
+                                    continue
+                                if mostValuablePiece is None or mostValuablePiece.getItemOrIllusion().price < _item.price:
+                                    mostValuablePiece = _piece
+                            if deadlyPiece is not None:
                                 score = PieceScore.HIGH
-                                pieceToSell = mortar[0]
+                                pieceToSell = deadlyPiece
+                            elif mostValuablePiece is not None:
+                                score = PieceScore.MEDIUM if mostValuablePiece.getItemOrIllusion().price >= 10 else PieceScore.LOW
+                                pieceToSell = mostValuablePiece
                             else:
-                                # Try to sell the most valuable item that isn't good
-                                # TODO: Sell good items if it can be good for us
-                                if mostValuablePiece is None:
-                                    for _piece in self.player.pieces:
-                                        _item = _piece.getItemOrIllusion()
-                                        if self.checkIsItemGood(_item):
-                                            continue
-                                        if _item not in self.player.magics and _item != item and (mostValuablePiece is None or mostValuablePiece.getItemOrIllusion().price < _item.price):
-                                            mostValuablePiece = _piece
-                                if mostValuablePiece is not None:
-                                    if mostValuablePiece.getItemOrIllusion().price > 10:
-                                        score = PieceScore.MEDIUM
-                                        pieceToSell = mostValuablePiece
-                                    else:
-                                        score = PieceScore.LOW
-                                        pieceToSell = mostValuablePiece
-                                else:
-                                    # We have no items to sell
-                                    score = PieceScore.DISCARD
-                                    pieceToSell = None
+                                # We have no items to sell
+                                score = PieceScore.DISCARD
+                                pieceToSell = None
                         if pieceToSell is not None:
                             scores[score].append((target, [piece, pieceToSell]))
                             continue
@@ -513,20 +519,25 @@ class AIProcessor:
                     damage = 0
 
                     for target in self.getEnemies():
-                        if item.attackExtra == "PESTLE":
-                            score = PieceScore.HIGH
-                        elif item.attackExtra == "DYING_ATTACK":
+                        if item.attackExtra == "DYING_ATTACK":
                             score = PieceScore.LOWEST
-                        elif item.hasSpecialWeaponDefense() or item.hasSpecialMagicDefense():
-                            #TODO: Increase if we can kill the enemy AND we know it doesn't have defense
+                        elif item.attackExtra == "PESTLE":
+                            # TODO: Increase chance if we saw that some enemy has the mortar.
+                            score = PieceScore.BELOW_LOW if self.room.getAliveCount() <= 2 else PieceScore.LOW
+                        elif item.attackExtra == "MAGICAL" and self.player.mp < 7:
+                            score = PieceScore.BELOW_LOW
+                        elif item.price >= 10 and item.getAtk() == 1 and not item.attribute and not item.attackExtra:
                             score = PieceScore.BELOW_LOW
                         elif item.hitRate > 0:
-                            score = PieceScore.MEDIUM if self.room.getAliveCount() <= 2 else PieceScore.ABOVE_MEDIUM
+                            if self.canBeInstantlyKilledBy(target, piece):
+                                score = PieceScore.HIGH
+                            else:
+                                score = PieceScore.MEDIUM if self.room.getAliveCount() <= 2 else PieceScore.ABOVE_MEDIUM
                         else:
                             if len(pieces) == 0:
                                 pieces.append(piece)
                                 damage = item.getAtk() if item.attackExtra != "MAGICAL" else self.player.mp * 2
-                                isSpecialAttr = item.attribute in ["DARK", "LIGHT"]
+                                isSpecialAttr = item.attribute in ["DARK", "LIGHT"] or (item.attribute and (damage >= 4 or item.isAtkHarm()))
 
                                 doubleAtk = self.getPiecesByAE("DOUBLE_ATK")
                                 wideAtk = self.getPiecesByAE("WIDE_ATK")[1:]
@@ -579,11 +590,14 @@ class AIProcessor:
                                     if len(wideAtk) > 0 and damage >= 5 and self.room.getAliveCount() > 2:
                                         appendPieces(wideAtk)
 
+                            #TODO: Also increase score if we can kill the enemy AND we know it doesn't have defense
                             if self.canBeInstantlyKilledBy(target, pieces, damage):
                                 score = PieceScore.HIGH
                             elif len(pieces) > 1 and self.getAttackAttribute(pieces):
                                 score = PieceScore.ABOVE_MEDIUM
-                            elif pieces[0].getItemOrIllusion().attackExtra in ["INCREASE_ATK", "ADD_ATTRIBUTE", "MAGIC_FREE"]:
+                            elif item.hasSpecialWeaponDefense() or item.hasSpecialMagicDefense():
+                                score = PieceScore.LOW
+                            elif item.attackExtra in ["INCREASE_ATK", "ADD_ATTRIBUTE", "MAGIC_FREE"]:
                                 score = PieceScore.BELOW_LOW
                             else:
                                 score = PieceScore.MEDIUM

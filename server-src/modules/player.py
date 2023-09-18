@@ -130,6 +130,9 @@ class Player:
     def hasLowerDisease(self) -> bool:
         return self.disease in ["COLD", "FEVER"] or any(harm in ["FOG", "GLORY"] for harm in self.harms)
 
+    def hasDisease(self) -> bool:
+        return len(self.disease) > 0 or len(self.harms) > 0
+
     def diseaseEffect(self) -> bool:
         assert self.disease and self.hp != 0, f"\"{self.name}\": Invalid call to diseaseEffect (Disease: {self.disease}, HP: {self.hp})"
 

@@ -90,7 +90,7 @@ class Item:
             return False
 
         # Check specific conditions for attackExtra
-        if self.attackExtra in ["MAGIC_FREE", "MAGICAL", "PESTLE"] and \
+        if self.attackExtra in ["MAGIC_FREE", "PESTLE"] and \
             other.attackExtra != self.attackExtra:
             return False
         if self.attackExtra in ["INCREASE_ATK", "ADD_ATTRIBUTE"] and \
