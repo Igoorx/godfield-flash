@@ -2,12 +2,13 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Optional
 if TYPE_CHECKING:
     from server import Server
-    from modules.item import Item
     from modules.room import Room
     from modules.player import Player
 from helpers.xmlbuilder import XMLBuilder
+from modules.item import Item
 from modules.commandPiece import CommandPiece
-from modules.attack import AttackData
+from modules.attackData import AttackData
+from modules.assistant import Assistant
 
 import random
 from queue import Queue
@@ -18,7 +19,7 @@ __all__ = ("TurnHandler",)
 class TurnHandler:
     room: Room
     server: Server
-    currentAttack: Optional[AttackData] 
+    currentAttack: Optional[AttackData]
     attackQueue: Queue[AttackData]
     attacker: Player
 
@@ -45,10 +46,6 @@ class TurnHandler:
             player.increaseHP(piece.item.value)
         else:
             print("DYING ATTACK")
-            builder = XMLBuilder("DIE")
-            builder.player.name(player.name)
-            self.room.broadXml(builder)
-            
             newAttack = AttackData(player, player, [piece])
             piece.illusionItem = None
             newAttack.decidedValue = 30
@@ -66,18 +63,18 @@ class TurnHandler:
         assert atkData.defender.hasOwnedPiece(atkData.decidedPiece), f"\"{atkData.defender.name}\" doesn't have decided item \"{decidedItem.id}\""
 
         print("Buy response: ", decidedItem, player, response)
-        
+
         builder = XMLBuilder("BUY")
-        
+
         if response and atkData.attacker.yen >= decidedItem.price:
             builder.doBuy
             atkData.defender.discardPiece(atkData.decidedPiece)
             atkData.defender.increaseYen(decidedItem.price)
             atkData.attacker.dealItem(decidedItem.id, True)
             atkData.attacker.decreaseYen(decidedItem.price)
-            
+
         self.room.broadXml(builder)
-        
+
     def convertPiecesToOwnedPieces(self, player: Player, pieceList: list[CommandPiece]):
         for idx in range(len(pieceList)):
             piece = pieceList[idx]
@@ -99,8 +96,8 @@ class TurnHandler:
         assert forced or not atkData.attacker.dead, f"\"{atkData.attacker.name}\" is dead but tried to attack!"
         assert forced or not atkData.defender.dead, f"\"{atkData.defender.name}\" attacked but is dead!"
 
-        print(f"QueueAttack: piece={atkData.pieceList}")
-        
+        print(f"QueueAttack: pieceList={atkData.pieceList}")
+
         if not forced and "FOG" in atkData.attacker.harms and atkData.attacker != atkData.defender:
             getRandomAlive = self.room.getRandomAliveEnemy if atkData.attacker.isEnemy(atkData.defender) else self.room.getRandomAliveAlly
             atkData.defender = getRandomAlive(atkData.attacker)
@@ -115,9 +112,10 @@ class TurnHandler:
         
         massiveAttack = False
         usedMagic = False
-        
+
         if not forced:
             self.convertPiecesToOwnedPieces(atkData.attacker, atkData.pieceList)
+            print(f"ownedPieceList={atkData.pieceList}")
 
         for idx, piece in enumerate(atkData.pieceList):
             item = piece.item
@@ -177,8 +175,8 @@ class TurnHandler:
             if item.attackKind == "MYSTERY":
                 assert len(atkData.pieceList) == 1
                 atkData.isAction = True
-                atkData.decidedMystery = random.choice(["MARS", "MERCURY", "JUPITER", "SATURN", "URANUS", "PLUTO", "NEPTUNE", "VENUS", "EARTH", "MOON"])
-                
+                atkData.decidedMystery = random.choice(Assistant.VALID_TYPES)
+
                 if atkData.decidedMystery == "MARS":
                     for player in self.room.players:
                         player.disease = "FEVER"
@@ -221,8 +219,7 @@ class TurnHandler:
                             del everyoneItemList[itemIdx]
                 elif atkData.decidedMystery == "MOON":
                     for player in self.room.players:
-                        player.assistantType = random.choice(["MARS", "MERCURY", "JUPITER", "SATURN", "URANUS", "PLUTO", "NEPTUNE", "VENUS", "EARTH", "MOON"])
-                        player.assistantHP = 20
+                        player.assistant = Assistant.createRandom(player)
                 break
             elif item.attackKind == "SET_ASSISTANT":
                 assert len(atkData.pieceList) == 1 + (1 if isMagicFree else 0)
@@ -230,7 +227,7 @@ class TurnHandler:
                     atkData.decidedAssistant = self.room.forceNextAssistant
                     self.room.forceNextAssistant = None
                 else:
-                    atkData.decidedAssistant = random.choice(["MARS", "MERCURY", "JUPITER", "SATURN", "URANUS", "PLUTO", "NEPTUNE", "VENUS", "EARTH", "MOON"])
+                    atkData.decidedAssistant = random.choice(Assistant.VALID_TYPES)
                 break
             elif item.attackKind == "INCREASE_OR_DECREASE_HP":
                 assert len(atkData.pieceList) == 1
@@ -273,7 +270,7 @@ class TurnHandler:
                         break
                 if mortar is not None:
                     atkData.mortar = mortar[1]
-                    atkData.damage = 99
+                    atkData.damage = 999
                     atkData.defender = mortar[0]
                 else:
                     atkData.defender = self.room.getRandomAlive()
@@ -281,10 +278,10 @@ class TurnHandler:
             else:
                 if item.attackExtra and item.attackExtra not in ["ADD_ATTRIBUTE"]:
                     atkData.extra.append(item.attackExtra)
-            
+
             if item.attackKind == "ATK":
                 attack = item.getAtk()
-                
+
                 if atkData.decidedValue is not None:
                     assert item.attackExtra == "DYING_ATTACK" or atkData.isCounter
                     attack = atkData.decidedValue
@@ -293,7 +290,7 @@ class TurnHandler:
                     massiveAttack = True
                     atkData.chance = item.hitRate
                     print(f"Massive attack, chance: {atkData.chance}")
-                
+
                 if atkData.damage == -1:
                     atkData.damage = attack
 
@@ -301,7 +298,7 @@ class TurnHandler:
                 atkData.attribute = item.attribute
             elif atkData.attribute != item.attribute and item.attribute != "LIGHT":
                 atkData.attribute = ""
-        
+
         if massiveAttack:
             assert not atkData.isAction and atkData.chance > 0
             print(f"New Massive Attack: {atkData}, {atkData.pieceList}")
@@ -369,9 +366,10 @@ class TurnHandler:
                 elif atkData.decidedMystery == "MOON":
                     bResult = builder.mysteryResult
                     for player in self.room.players:
+                        assert player.assistant is not None
                         bPlayer = bResult.player
                         bPlayer.name(player.name)
-                        bPlayer.assistantType(player.assistantType)
+                        bPlayer.assistantType(player.assistant.type)
             if atkData.pieceList[0].item.attackKind == "EXCHANGE" and atkData.decidedExchange is not None:
                 builder.power(key="HP")(str(atkData.decidedExchange["HP"]))
                 builder.power(key="MP")(str(atkData.decidedExchange["MP"]))
@@ -394,7 +392,7 @@ class TurnHandler:
                 return self.defenderCommand(atkData.defender, atkData.defender.aiProcessor.onDefenseTurn())
         else:
             print("Attack missed!")
-        
+
         return endInning
 
     def inflictDamage(self, atkData: AttackData) -> bool:
@@ -489,8 +487,7 @@ class TurnHandler:
                     player.increaseYen(item.value)
             elif item.attackKind == "SET_ASSISTANT":
                 assert atkData.decidedAssistant is not None
-                atkData.defender.assistantType = atkData.decidedAssistant
-                atkData.defender.assistantHP = 20
+                atkData.defender.assistant = Assistant(atkData.defender, atkData.decidedAssistant)
             elif item.attackKind == "INCREASE_OR_DECREASE_HP":
                 assert atkData.decidedHP is not None
                 if atkData.decidedHP < 0:
@@ -509,9 +506,7 @@ class TurnHandler:
 
         if hasDamaged:
             if atkData.attribute == "DARK":
-                atkData.defender.hp = 0
-                atkData.defender.assistantType = ""
-                atkData.defender.assistantHP = 0
+                atkData.defender.takeDamage(999)
             else:
                 if "ABSORB_HP" in atkData.extra:
                     atkData.attacker.increaseHP(atkData.damage)
@@ -537,7 +532,7 @@ class TurnHandler:
     # TODO: Maybe divide defense handing in different classes, like CommandChain, DefenseCommand, Attribute and etc...
     def defenderCommand(self, player: Player, pieceList: list[CommandPiece]) -> bool:
         assert self.currentAttack is not None
-        
+
         atkData = self.currentAttack.clone()
         assert player == atkData.defender
 
@@ -557,8 +552,9 @@ class TurnHandler:
 
         print("New Defender Command!")
         print("Used:", str(pieceList))
-        
+
         self.convertPiecesToOwnedPieces(player, pieceList)
+        print("Used (Owned):", str(pieceList))
 
         for idx, piece in enumerate(pieceList):
             item = piece.item
@@ -579,7 +575,7 @@ class TurnHandler:
 
             if usedMagic and item.attackExtra == "MAGIC_FREE":
                 continue
-            
+
             if defenseAttr is None or defenseAttr == "LIGHT":
                 defenseAttr = item.attribute
             elif defenseAttr != item.attribute and item.attribute != "LIGHT":
@@ -589,7 +585,7 @@ class TurnHandler:
                (item.defenseExtra == "REFLECT_MAGIC" and atkData.pieceList[0].item.type == "MAGIC") or\
                 item.defenseExtra == "REFLECT_ANY":
                 reflected = True
-                print("Current Attack Reflected!")                
+                print("Current Attack Reflected!")
                 self.currentAttack.attacker, self.currentAttack.defender = self.currentAttack.defender, self.currentAttack.attacker
                 atkData = self.currentAttack.clone()
                 break
@@ -608,15 +604,15 @@ class TurnHandler:
             if item.defenseKind == "DFS":
                 if item.isDefHarm():
                     atkData.defender.addHarm(item.defenseExtra)
-                    
+
                 defense = item.getDef()
                 atkData.damage = max(0, atkData.damage - defense)
-        
+
         chain = False
         if not reflected and not flicked and not blocked:
             # Check if that attack could really be defended
             if len(pieceList) > 0:
-                assert atkData.canBeDefendedBy(defenseAttr), f"Invalid defense used! (Attack Attr: {atkData.attribute}, Def Attr: {defenseAttr})"
+                assert Item.checkDefense(atkData.attribute, defenseAttr), f"Invalid defense used! (Attack Attr: {atkData.attribute}, Def Attr: {defenseAttr})"
 
             if atkData.damage > 0:
                 for piece in pieceList:
@@ -629,11 +625,11 @@ class TurnHandler:
                     piece.illusionItem = None
                     if item.id in [187, 194]: # FIRE ATK, ABSORB_YEN
                         newAttack.decidedValue = atkData.damage
-                    elif item.id in [190, 193]: # INCREASE_MP (x2), SOIL ATK (x2)
+                    elif item.id in [190, 193]: # SOIL ATK (x2), INCREASE_MP (x2)
                         newAttack.decidedValue = atkData.damage * 2
                     newAttack.isCounter = True
                     self.queueAttack(newAttack, True)
-                    
+
             chain = self.inflictDamage(atkData)
             if atkData.attacker == atkData.defender:
                 print("Self attack, no defense!")
@@ -641,7 +637,7 @@ class TurnHandler:
             if atkData.mortar is not None:
                 print("Mortar attack, no defense!")
                 return True
-            
+
         builder = XMLBuilder("COMMAND")
 
         for player in self.room.players:
@@ -649,7 +645,7 @@ class TurnHandler:
                 continue
             if player.aiProcessor is not None:
                 player.aiProcessor.notifyAttack(atkData, pieceList, reflected or blocked or flicked)
-        
+
         if not reflected and atkData.decidedPiece is not None:
             atkData.decidedPiece.writeXML(builder.commandChain.piece)
         elif not chain:
@@ -658,16 +654,16 @@ class TurnHandler:
 
         if reflected or flicked:
             builder.target.name(str(atkData.defender.name))
-                        
+
         if atkData.decidedValue is not None:
             builder.decidedValue(str(atkData.decidedValue))
-            
+
         self.room.broadXml(builder)
 
         if reflected or blocked or flicked:
             # Check if that attack could really be defended
             if pieceList[0].item.defenseExtra != "REFLECT_ANY" and atkData.pieceList[0].item.type != "MAGIC":
-                assert atkData.canBeDefendedBy(defenseAttr), f"Invalid defense used! (Attack Attr: {atkData.attribute}, Def Attr: {defenseAttr})"
+                assert Item.checkDefense(atkData.attribute, defenseAttr), f"Invalid defense used! (Attack Attr: {atkData.attribute}, Def Attr: {defenseAttr})"
 
             if blocked or atkData.defender.dead:
                 return True

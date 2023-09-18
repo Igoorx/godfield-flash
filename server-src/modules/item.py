@@ -1,3 +1,4 @@
+from typing import Optional
 from dataclasses import dataclass
 import numpy
 import random
@@ -21,6 +22,8 @@ class Item:
     price: int
     weight: int
 
+    ALL_DISEASES = ["COLD", "FEVER", "HELL", "HEAVEN"]
+    ALL_HARMS = ["FOG", "ILLUSION", "GLORY", "DARK_CLOUD"]
     __slots__ = tuple(__annotations__)
 
     @staticmethod
@@ -58,13 +61,19 @@ class Item:
             price          = 0,
             weight         = int(data[6]) if data[6] else 0
         )
-    
+
     def isAtkHarm(self) -> bool:
-        return self.attackExtra in ["COLD", "FEVER", "HELL", "HEAVEN", "FOG", "ILLUSION", "GLORY", "DARK_CLOUD"]
+        return self.attackExtra in Item.ALL_DISEASES + Item.ALL_HARMS
 
     def isDefHarm(self) -> bool:
-        return self.defenseExtra in ["COLD", "FEVER", "HELL", "HEAVEN", "FOG", "ILLUSION", "GLORY", "DARK_CLOUD"]
-    
+        return self.defenseExtra in Item.ALL_DISEASES + Item.ALL_HARMS
+
+    def hasSpecialWeaponDefense(self):
+        return self.defenseExtra in ["REFLECT_WEAPON", "FLICK_WEAPON", "BLOCK_WEAPON"]
+
+    def hasSpecialMagicDefense(self):
+        return self.defenseExtra in ["REFLECT_MAGIC", "FLICK_MAGIC", "BLOCK_MAGIC"]
+
     def canBeAffectedByIllusion(self) -> bool:
         if self.type in ["TRADE", "MAGIC"]:
             return False
@@ -73,28 +82,39 @@ class Item:
     def isSimilarTo(self, other: 'Item') -> bool:
         if self.type in ["TRADE", "MAGIC"]:
             return False
-        elif self.defenseKind != other.defenseKind:
+
+        if self.defenseKind != other.defenseKind:
             return False
-        elif self.hitRate > 0 and other.hitRate == 0:
+
+        if self.hitRate != 0 and other.hitRate == 0:
             return False
-        elif self.attackExtra in ["MAGIC_FREE", "MAGICAL", "PESTLE"] and other.attackExtra != self.attackExtra:
+
+        # Check specific conditions for attackExtra
+        if self.attackExtra in ["MAGIC_FREE", "MAGICAL", "PESTLE"] and \
+            other.attackExtra != self.attackExtra:
             return False
-        elif self.attackExtra in ["INCREASE_ATK", "ADD_ATTRIBUTE"] and other.attackExtra not in ["INCREASE_ATK", "ADD_ATTRIBUTE"]:
+        if self.attackExtra in ["INCREASE_ATK", "ADD_ATTRIBUTE"] and \
+            other.attackExtra not in ["INCREASE_ATK", "ADD_ATTRIBUTE"]:
             return False
-        elif self.attackExtra in ["REVIVE", "MORTAR"] and other.attackExtra not in ["REVIVE", "MORTAR"]:
+        if self.attackExtra in ["REVIVE", "MORTAR"] and \
+            other.attackExtra not in ["REVIVE", "MORTAR"]:
             return False
-        elif self.attribute != "" and self.defenseKind in ["DFS", "COUNTER"] and other.attribute != self.attribute:
+
+        # Check specific conditions for defenseKind
+        if self.attribute != "" and self.defenseKind in ["DFS", "COUNTER"] and other.attribute != self.attribute:
             return False
-        elif self.defenseExtra in ["REMOVE_ATTRIBUTE", "REFLECT_ANY"] and other.defenseExtra != self.defenseExtra:
+
+        # Check specific conditions for defenseExtra
+        if self.defenseExtra in ["REMOVE_ATTRIBUTE", "REFLECT_ANY"] and \
+            other.defenseExtra != self.defenseExtra:
             return False
-        elif self.defenseExtra in ["REFLECT_WEAPON", "FLICK_WEAPON", "BLOCK_WEAPON"] and \
-             other.defenseExtra not in ["REFLECT_WEAPON", "FLICK_WEAPON", "BLOCK_WEAPON"]:
+        if self.hasSpecialWeaponDefense() and not other.hasSpecialWeaponDefense():
              return False
-        elif self.defenseExtra in ["REFLECT_MAGIC", "FLICK_MAGIC", "BLOCK_MAGIC"] and \
-             other.defenseExtra not in ["REFLECT_MAGIC", "FLICK_MAGIC", "BLOCK_MAGIC"]:
+        if self.hasSpecialMagicDefense() and not other.hasSpecialMagicDefense():
              return False
+
         return True
-    
+
     def isReplaceableBy(self, other: 'Item') -> bool:
         return self.isSimilarTo(other) and other.isSimilarTo(self)
 
@@ -116,8 +136,24 @@ class Item:
                 return self.value
         return 0
 
-    def getAD(self) -> list[int]:
-        return [self.getAtk(), self.getDef()]
+    @staticmethod
+    def checkDefense(attackAttr: Optional[str], defenseAttr: Optional[str]):
+        if not attackAttr or attackAttr == "DARK":
+            return True
+
+        if not defenseAttr:
+            return attackAttr == "DARK"
+
+        defenseMapping = {
+            "FIRE": ["WATER", "LIGHT"],
+            "WATER": ["FIRE", "LIGHT"],
+            "TREE": ["SOIL", "LIGHT"],
+            "SOIL": ["TREE", "LIGHT"],
+            "LIGHT": ["DARK"]
+        }
+
+        assert attackAttr in defenseMapping, f"Unknown attribute \"{attackAttr}\"!"
+        return defenseAttr in defenseMapping[attackAttr]
 
 
 class ItemManager:
@@ -141,12 +177,11 @@ class ItemManager:
 
     def __contains__(self, id: int) -> bool:
         return any(item.id == id for item in self.items)
-        
+
     def getItem(self, id: int) -> Item:
-        for item in self.items:
-            if item.id == id:
-                return item
-        assert False, "Tried to get inexistent item"
+        item = next((item for item in self.items if item.id == id), None)
+        assert item is not None, f"Tried to get inexistent item {id}!"
+        return item
 
     def getIllusionForItem(self, id: int) -> int:
         item = self.getItem(id)
@@ -163,6 +198,9 @@ class ItemManager:
         if count == 0:
             return []
         return self.randGen.choice(self.items, count, p = self.itemsProbabilities) # type: ignore
+
+    def getProbRandomItem(self) -> Item:
+        return self.randGen.choice(self.items, 1, p = self.itemsProbabilities)[0] # type: ignore
 
     def getProbRandomAssistantItem(self, assistantType: str) -> Item:
         assert assistantType in self.assistantItems

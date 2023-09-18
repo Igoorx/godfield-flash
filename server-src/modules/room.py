@@ -1,14 +1,12 @@
 # -*- coding: cp1252 -*-
 from __future__ import annotations
-from typing import TYPE_CHECKING, Any, Optional
+from typing import TYPE_CHECKING, Optional
 if TYPE_CHECKING:
     from server import Server
     from modules.session import Session
 from helpers.xmlbuilder import XMLBuilder
 from modules.player import Player
 from modules.turn import TurnHandler
-from modules.commandPiece import CommandPiece
-from modules.attack import AttackData
 
 import random
 
@@ -41,11 +39,12 @@ class Room:
     users: list[Session]
     players: list[Player]
 
+    VALID_TEAMS = ["TEAM1", "TEAM2", "TEAM3", "TEAM4"]
     __slots__ = tuple(__annotations__)
 
-    def __init__(self, server: Server, name: str, password: str = ""):
+    def __init__(self, server: Server, serverMode: str, name: str, password: str = ""):
         self.server = server
-        self.serverMode = str()
+        self.serverMode = serverMode
 
         self.id = int()
         self.name = name
@@ -126,18 +125,20 @@ class Room:
         getAliveCount = self.getTeamsAliveCount if self.teamPlay else self.getAliveCount
         return getAliveCount() <= 1
 
-    def addUser(self, user: Session, roomCreate: bool = False):
+    def addUser(self, session: Session, roomCreate: bool = False):
+        assert self.server.mode == "ANY" or session.serverMode == self.serverMode
+
         builder = XMLBuilder("ENTER")
-        
+
         bRoom = builder.room
         for user_ in self.users:
             bUser = bRoom.user
-            bUser.name(user_.name)
+            bUser.name(user_.userName)
         bRoom.name(self.name)
         bRoom.playersLimit(str(self.playersLimit))
         if self.fast:
             bRoom.isFast  # <isFast />
-        
+
         bGame = bRoom.game  # <game />
         if len(self.players) > 0:
             if self.playing:
@@ -147,9 +148,9 @@ class Room:
             bPlayers = bGame.players
             for player in self.players:
                 player.writeXML(bPlayers.player)
-        
+
         if self.playing:
-            privPlayer = self.getPlayer(user.name)
+            privPlayer = self.getPlayer(session.userName)
             if privPlayer is not None:
                 bGame.dealCount(str(privPlayer.deal))
                 bPrivPlayer = bGame.privatePlayer
@@ -160,7 +161,7 @@ class Room:
                     bAbility = bPrivPlayer.ability
                     bAbility.item(str(item))
                     bAbility.abilityIndex(str(idx))
-            
+
             bAttacker = bGame.attacker
             if self.turn.currentAttack is None:
                 bAttacker.name(str(self.turn.attacker.name))
@@ -189,13 +190,13 @@ class Room:
                 if atkData.attacker == atkData.defender and atkData.decidedPiece is not None:
                     atkData.decidedPiece.writeXML(builder.commandChain.piece)
 
-        user.sendXml(builder)
+        session.sendXml(builder)
 
-        user.state = "ROOM"
-        self.users.append(user)
+        session.state = "ROOM"
+        self.users.append(session)
 
         builder = XMLBuilder("ADD_USER")
-        builder.user.name(user.name)
+        builder.user.name(session.userName)
         self.broadXml(builder)
 
         # For Broadcasting to Lobby
@@ -213,32 +214,32 @@ class Room:
 
         self.server.lobbyBroadXml(builder)
 
-    def removeUser(self, user: Session):
-        if user not in self.users:
+    def removeUser(self, session: Session):
+        if session not in self.users:
             return
 
-        self.users.remove(user)
+        self.users.remove(session)
 
         if len(self.users) == 0:
             # Destroy Room
             del self.server.rooms[self.id]
         else:
             builder = XMLBuilder("REMOVE_USER")
-            builder.name(user.name)
+            builder.name(session.userName)
             self.broadXml(builder)
 
         # Broadcast to Lobby
         builder = XMLBuilder("REMOVE_USER")
         builder.roomID(str(self.id))
-        builder.user.name(user.name)
+        builder.user.name(session.userName)
         self.server.lobbyBroadXml(builder)
 
-    def enterGame(self, user: Session, team: str):
-        assert team in ["SINGLE", "TEAM1", "TEAM2", "TEAM3", "TEAM4"]
+    def enterGame(self, session: Session, team: str):
+        assert team in ["SINGLE"] + Room.VALID_TEAMS
         if self.playing:
             return
 
-        player = self.getPlayer(user.name)
+        player = self.getPlayer(session.userName)
 
         if len(self.players) == 0:
             self.teamPlay = team != "SINGLE"
@@ -246,12 +247,12 @@ class Room:
             assert self.teamPlay == (team != "SINGLE"), "Player tried to choose an impossible team"
 
         if player is None:
-            player = Player(user, user.name, team)
+            player = Player(self, session, team)
             self.players.append(player)
         else:
             player.team = team
 
-        print(f"Add player: {user.name}@{team}")
+        print(f"Add player: {session.userName}@{team}")
 
         builder = XMLBuilder("ADD_PLAYER")
         bPlayer = builder.player
@@ -259,7 +260,7 @@ class Room:
         bPlayer.team(player.team)
         self.broadXml(builder)
 
-        # Broadcast to Lobby
+        # Reuse builder to broadcast to lobby
         builder.roomID(str(self.id))
         self.server.lobbyBroadXml(builder)
 
@@ -284,7 +285,7 @@ class Room:
                     endInning = True
             elif atkData.defender == player:
                 endInning = self.turn.defenderCommand(player, player.aiProcessor.onDefenseTurn())
-            
+
             if endInning:
                 self.nextInning()
         else:
@@ -294,6 +295,7 @@ class Room:
             builder.player.name(player.name)
             self.broadXml(builder)
 
+            # Reuse builder to broadcast to lobby
             builder.roomID(str(self.id))
             self.server.lobbyBroadXml(builder)
 
@@ -302,18 +304,18 @@ class Room:
             return
         if len(self.players) in [0, 1, 2, 3, 5, 7]:
             return
-            
+
         # To be honest, I don't know how this should be implemented, the below implementation is just a guess.
-        validTeams = ["TEAM1", "TEAM2", "TEAM3", "TEAM4"]
+        # TODO: Improve this.
         players = list(self.players)
         random.shuffle(players)
 
         for idx, player in enumerate(players):
             assert player.session is not None
             if idx < len(self.players) / 2:
-                self.enterGame(player.session, validTeams[0])
+                self.enterGame(player.session, Room.VALID_TEAMS[0])
             else:
-                self.enterGame(player.session, validTeams[1])
+                self.enterGame(player.session, Room.VALID_TEAMS[1])
 
     def playerReady(self, playerName: str):
         if self.playing:
@@ -338,13 +340,13 @@ class Room:
         assert len(self.players) > 0, "StartGame called without players."
         if self.playing:
             return
-        
+
         self.inningCount = -1
         self.playing = True
         self.ended = False
         self.handledDiseaseThisTurn = True
         self.handledAssistantThisTurn = True
-        
+
         for player in self.players:
             player.reset()
             player.ready = True
@@ -353,7 +355,8 @@ class Room:
 
         builder = XMLBuilder("START_GAME")
         self.broadXml(builder)
-        
+
+        # Reuse builder to broadcast to lobby
         builder.roomID(str(self.id))
         builder.time(str(self.time))
         self.server.lobbyBroadXml(builder)
@@ -377,7 +380,7 @@ class Room:
 
         for player in self.players:
             player.waitingAttackTurn = True
-        
+
         builder = XMLBuilder("RESET_ATTACK_ORDER")
         self.broadXml(builder)
 
@@ -385,7 +388,7 @@ class Room:
         self.attackOrder = (self.attackOrder + 1) % len(self.players)
         if self.attackOrder == 0:
             self.resetAttackOrder()
-        
+
         next = self.attackOrderList[self.attackOrder]
         while next.dead:
             self.attackOrder = (self.attackOrder + 1) % len(self.players)
@@ -398,17 +401,26 @@ class Room:
         for player in self.players:
             if player.hp > 0 or player.dead:
                 continue
-            
+
             if self.getAliveCount() >= 2 and (piece := player.getOwnedPieceById(244)) is not None:  # REVIVE
                 self.turn.playerDyingAttack(player, piece)
-            elif self.getAliveCount() >= 2 and (piece := player.getOwnedPieceById(117)) is not None:  # DYING_ATTACK
-                player.dead = True
+                continue
+
+            player.dead = True
+
+            builder = XMLBuilder("DIE")
+            builder.player.name(player.name)
+            self.broadXml(builder)
+
+            if self.getAliveCount() >= 2 and (piece := player.getOwnedPieceById(117)) is not None:  # DYING_ATTACK
                 self.turn.playerDyingAttack(player, piece)
             else:
-                player.dead = True
+                # TODO: Check if it makes sense to unillusion/unfog even if we will be doing a dying attack.
                 if "ILLUSION" in player.harms:
                     player.pendingUnillusion = True
-                
+                if "FOG" in player.harms:
+                    player.pendingUnfog = True
+
                 if player.team == "SINGLE":
                     player.lost = True
                 elif player.team not in self.getAliveTeams():
@@ -416,10 +428,7 @@ class Room:
                         if _player.team == player.team:
                             _player.lost = True
 
-                builder = XMLBuilder("DIE")
-                builder.player.name(player.name)
-                self.broadXml(builder)
-        
+                # Reuse builder to broadcast to lobby
                 builder.roomID(str(self.id))
                 self.server.lobbyBroadXml(builder)
 
@@ -455,10 +464,10 @@ class Room:
         self.handlePlayersDeath()
         self.handlePlayersUnillusion()
         self.handlePlayersUnfog()
-            
+
         if not self.turn.attackQueue.empty():
             return False
-        
+
         if not self.handledDiseaseThisTurn:
             self.handledDiseaseThisTurn = True
             if not self.turn.attacker.dead and self.turn.attacker.disease:
@@ -481,41 +490,11 @@ class Room:
         if not self.handledAssistantThisTurn and not self.checkEndGame():
             self.handledAssistantThisTurn = True
             for player in self.players:
-                if player.dead or not player.assistantType or not player.isEnemy(self.turn.attacker):
+                if player.dead or player.assistant is None or not player.isEnemy(self.turn.attacker):
                     continue
-                
                 if random.randrange(100) < 30:
-                    print(f"{player.name} assistant attack!")
-                    itemList = [self.server.itemManager.getProbRandomAssistantItem(player.assistantType)]
+                    player.assistant.onAttackOpportunity()
 
-                    if player.assistantType == "EARTH":
-                        newItem = self.server.itemManager.getProbRandomItems(1)[0]
-                        itemList.append(newItem)
-                        if newItem.type != "MAGIC" and newItem.attackKind != "EXCHANGE":
-                            if newItem.attackKind == "SELL":
-                                itemList = [newItem, self.server.itemManager.getProbRandomItems(1)[0]]
-                            elif newItem.attackKind in ["ATK", "BUY"]:
-                                itemList = [newItem]
-                    elif player.assistantType == "MOON":
-                        newItem = None
-                        # TODO: This should be optimized somehow
-                        while newItem is None or newItem.type != "MAGIC" or newItem.defenseExtra == "FLICK_MAGIC" or newItem.defenseExtra == "BLOCK_WEAPON" or newItem.attackKind == "SET_ASSISTANT":
-                            newItem = self.server.itemManager.getProbRandomItems(1)[0]
-                        if newItem.attackExtra == "WIDE_ATK" or newItem.attackExtra == "DOUBLE_ATK":
-                            itemList.append(newItem)
-                        else:
-                            itemList = [newItem]
-                                
-                    target = player
-                    if (itemList[0].attackKind == "ATK" and itemList[0].hitRate == 0) or itemList[0].attackKind in ["SELL", "BUY", "ABSORB_YEN", "ADD_HARM", "REMOVE_ITEMS", "REMOVE_ABILITIES"]:
-                        target = self.getRandomAliveEnemy(player)
-                    elif (itemList[0].attackKind == "INCREASE_MP" and not itemList[0].isAtkHarm()) or itemList[0].attackKind in ["INCREASE_HP", "INCREASE_YEN", "REMOVE_LOWER_HARMS", "REMOVE_ALL_HARMS", "ADD_ITEM", "SET_ASSISTANT"]:
-                        target = self.getRandomAliveAlly(player, False)
-                        
-                    newAttack = AttackData(player, target, [CommandPiece(item) for item in itemList])
-                    newAttack.assistantType = player.assistantType
-                    self.turn.queueAttack(newAttack, True)
-                    
             return self.turn.attackQueue.empty()
 
         return True
@@ -529,7 +508,7 @@ class Room:
         print("Round", self.inningCount+1, "ended, starting new round..")
 
         self.doPlayersDeals()
-        
+
         builder = XMLBuilder("END_INNING")
         self.broadXml(builder)
 
@@ -542,7 +521,7 @@ class Room:
         self.inningCount += 1
         self.handledDiseaseThisTurn = False
         self.handledAssistantThisTurn = False
-        
+
         builder = XMLBuilder("START_INNING")
         builder.attacker.name(self.turn.attacker.name)
         self.broadXml(builder)
@@ -558,11 +537,11 @@ class Room:
                 return
 
             self.startInning()
-            
+
             if self.turn.attacker.aiProcessor is not None:
                 self.turn.attackerCommand(self.turn.attacker, *self.turn.attacker.aiProcessor.onAttackTurn())
                 continue
-            
+
             # Player input is required to proceed.
             break
 

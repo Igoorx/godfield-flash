@@ -23,14 +23,6 @@ class User(protocol.Protocol):
         self.recvd = str()
         self.session = None
 
-    def getServerMode(self) -> str:
-        if self.server.mode == "ANY":
-            host = self.transport.getHost()
-            for type, port in self.server.typesPorts.items():
-                if port == host.port:
-                    return type
-        return self.server.mode
-
     def connectionMade(self):
         self.server = self.factory
         self.ipAddress = self.transport.getPeer().host
@@ -63,7 +55,7 @@ class User(protocol.Protocol):
 
     def sendXml(self, xml):
         if self.session is not None:
-            print(f"SEND ({self.session.name}): {repr(str(xml))}")
+            print(f"SEND ({self.session.userName}): {repr(str(xml))}")
         self.transport.write((str(xml) + chr(0)).encode())
 
     def parseXml(self, xml: str):
@@ -72,7 +64,7 @@ class User(protocol.Protocol):
         xmldict = list(xmldict.values())[0] if list(xmldict.values())[0] != None else dict()
 
         #print repr(xml)
-        print(f"RECV \"{request}\" from {self.session.name if self.session else '?'}: {xmldict}")
+        print(f"RECV \"{request}\" from {self.session.userName if self.session else '?'}: {xmldict}")
 
         if request == "ERROR":
             print(repr(xml))
@@ -89,8 +81,10 @@ class User(protocol.Protocol):
                 self.transport.loseConnection()
                 return
 
+            serverMode = self.server.getServerType(self.transport.getHost())
+
             self.session = Session(self, xmldict)
-            self.session.onLogin()
+            self.session.onLogin(serverMode)
 
         else:
             if self.session is None:

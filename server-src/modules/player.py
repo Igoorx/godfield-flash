@@ -4,9 +4,10 @@ if TYPE_CHECKING:
     from server import Server
     from modules.session import Session
     from modules.room import Room
-    from modules.item import Item
 from helpers.xmlbuilder import XMLBuilder, XMLNode
+from modules.item import Item
 from modules.bot import AIProcessor
+from modules.assistant import Assistant
 from modules.commandPiece import CommandPiece
 
 import random
@@ -34,23 +35,25 @@ class Player:
     deal: int
     magics: list[int]
     pieces: list[CommandPiece]
-    assistantType: str
-    assistantHP: int
+    assistant: Optional[Assistant]
     aiProcessor: Optional[AIProcessor]
     pendingUnillusion: bool
     pendingUnfog: bool
 
     __slots__ = tuple(__annotations__)
 
-    def __init__(self, session: Optional[Session], name: str, team: str):
-        self.name = name
+    def __init__(self, room: Room, sessionOrName: Session | str, team: str):
+        if isinstance(sessionOrName, str):
+            self.name = sessionOrName
+            self.session = None
+        else:
+            self.name = sessionOrName.userName
+            self.session = sessionOrName
+
         self.team = team
 
-        self.session = session
-        if session is not None:
-            assert session.room is not None
-            self.server = session.server
-            self.room = session.room
+        self.server = room.server
+        self.room = room
 
         self.aiProcessor = None
 
@@ -58,12 +61,6 @@ class Player:
 
     def __str__(self):
         return f"<Player {self.name}>"
-
-    def enableAIProcessor(self):
-        self.aiProcessor = AIProcessor(self)
-
-    def disableAIProcessor(self):
-        self.aiProcessor = None
 
     def reset(self):
         self.ready = False
@@ -85,11 +82,16 @@ class Player:
         self.magics = list()
         self.pieces = list()
 
-        self.assistantType = str()
-        self.assistantHP = 0
+        self.assistant = None
 
         self.pendingUnillusion = False
         self.pendingUnfog = False
+
+    def enableAIProcessor(self):
+        self.aiProcessor = AIProcessor(self)
+
+    def disableAIProcessor(self):
+        self.aiProcessor = None
 
     def isEnemy(self, other: Player):
         return other != self and (other.team == "SINGLE" or other.team != self.team)
@@ -108,14 +110,10 @@ class Player:
 
     def takeDamage(self, damage: int):
         assert damage >= 0
-        if self.assistantHP > 0:
-            self.assistantHP -= damage
-            damage = 0
-            if self.assistantHP < 0:
-                damage = self.assistantHP * -1
-                self.assistantHP = 0
-            if self.assistantHP == 0:
-                self.assistantType = ""
+        if self.assistant is not None:
+            damage = self.assistant.absorbDamage(damage)
+            if self.assistant.hp == 0:
+                self.assistant = None
         self.hp = max(0, self.hp - damage)
 
     def decreaseYen(self, amount):
@@ -134,7 +132,7 @@ class Player:
 
     def diseaseEffect(self) -> bool:
         assert self.disease and self.hp != 0, f"\"{self.name}\": Invalid call to diseaseEffect (Disease: {self.disease}, HP: {self.hp})"
-        
+
         damage = 0
         if self.disease == "COLD":
             damage = 1
@@ -146,7 +144,7 @@ class Player:
             damage = -5
         else:
             assert False, f"Unimplemented disease: {self.disease}"
-        
+
         if damage >= 0:
             self.takeDamage(damage)
         else:
@@ -154,23 +152,25 @@ class Player:
         return True
 
     def addHarm(self, harm: str):
-        diseases = ["COLD", "FEVER", "HELL", "HEAVEN"]
-        if harm in diseases:
+        assert harm in Item.ALL_DISEASES or harm in Item.ALL_HARMS
+
+        if self.disease == "HEAVEN":
+            self.takeDamage(999)
+            self.worseChance = 0
+            print(f"\"{self.name}\": FALL FROM THE HEAVEN!")
+            return
+
+        if harm in Item.ALL_DISEASES:
             if self.disease:
-                if self.disease == "HEAVEN":
-                    print(f"\"{self.name}\": FALL FROM THE HEAVEN!")
-                    self.hp = 0
-                    self.assistantType = ""
-                    self.assistantHP = 0
-                else:
-                    idx = diseases.index(self.disease)
-                    self.disease = harm if idx < diseases.index(harm) else diseases[idx + 1]
+                idx = Item.ALL_DISEASES.index(self.disease)
+                self.disease = harm if idx < Item.ALL_DISEASES.index(harm) else Item.ALL_DISEASES[idx + 1]
             else:
                 self.disease = harm
             self.worseChance = 0
+            print(f"\"{self.name}\" got disease: {self.disease}")
         elif harm not in self.harms:
             self.harms.append(harm)
-        print(f"\"{self.name}\": Current Harm: {self.harms}, Current Disease: {self.disease}")
+            print(f"\"{self.name}\" got harm: {harm}")
 
     def unillusionPieces(self):
         builder = XMLBuilder("UNILLUSION")
@@ -220,7 +220,7 @@ class Player:
         if len(self.pieces) == 16:
             print(f"{self.name} deal failed because hand is full")
             return False
-        
+
         print(f"{self.name} deal {id}")
         piece = CommandPiece(self.server.itemManager.getItem(id))
 
@@ -231,22 +231,22 @@ class Player:
             piece.illusionItem = self.server.itemManager.getItem(illusionId)
             if illusionId != id:
                 print(f"{self.name} previous deal was afflicted by illusion and became {illusionId}")
-        
+
         self.pieces.append(piece)
 
         if not isAction and self.session is not None:
             builder = XMLBuilder("DEAL")
             builder.item(str(piece.getItemOrIllusion().id))
             self.session.sendXml(builder)
-        
+
         return True
-    
+
     def hasOwnedPiece(self, ownedPiece: CommandPiece) -> bool:
         return ownedPiece in self.pieces
 
     def hasMagic(self, id: int) -> bool:
         return id in self.magics
-    
+
     def getItems(self, bypassIllusion: bool = True) -> Iterator[Item]:
         for piece in self.pieces:
             yield piece.item if bypassIllusion or piece.illusionItem is None else piece.illusionItem
@@ -265,7 +265,7 @@ class Player:
         if not self.hasOwnedPiece(ownedPiece):
             print(self.pieces)
             assert False, f"\"{self.name}\" tried to discard piece ({ownedPiece}) that he doesn't have"
-        
+
         print(f"{self.name} discard piece {ownedPiece}")
         self.pieces.remove(ownedPiece)
         return True
@@ -273,14 +273,14 @@ class Player:
     def discardMagic(self, id: int) -> bool:
         if not self.hasMagic(id):
             assert False, f"\"{self.name}\" tried to discard magic (id {id}) that he doesn't have"
-        
+
         print(f"{self.name} discard magic {id}")
         self.magics.remove(id)
         return True
-    
+
     def getOwnedPieceById(self, id: int) -> Optional[CommandPiece]:
         return next((piece for piece in self.pieces if piece.item.id == id), None)
-    
+
     def getOwnedPiece(self, otherPiece: CommandPiece, exceptPieces: list[CommandPiece] = []) -> Optional[CommandPiece]:
         if otherPiece.illusionItemIndex != -1:
             illusionIndex = 0
@@ -297,7 +297,7 @@ class Player:
         if not self.hasOwnedPiece(ownedPiece):
             print(self.pieces)
             assert False, f"\"{self.name}\" tried to use an piece ({ownedPiece}) that he doesn't have"
-        
+
         item = ownedPiece.item
         if item.type == "FIXED":
             # FIXED artifacts are eternal.
@@ -315,13 +315,13 @@ class Player:
         if not self.hasMagic(id):
             print(self.magics)
             assert False, f"\"{self.name}\" tried to use an magic ({id}) that he doesn't have"
-        
+
         item = self.server.itemManager.getItem(id)
         assert noMPCost or self.mp >= item.subValue, f"\"{self.name}\" tried to use magic (id {id}) with not enough MP ({self.mp} < {item.subValue})"
-        
+
         if not noMPCost:
             self.mp -= item.subValue
-    
+
     def writeXML(self, bPlayer: XMLNode):
         bPlayer.name(self.name)
         bPlayer.team(self.team)
@@ -342,7 +342,7 @@ class Player:
             bPlayer.disease(self.disease)
         for harm in self.harms:
             bPlayer.harm(harm)
-        if self.assistantType:
+        if self.assistant is not None:
             bAssistant = bPlayer.assistant
-            bAssistant.type(self.assistantType)
-            bAssistant.hp(str(self.assistantHP))
+            bAssistant.type(self.assistant.type)
+            bAssistant.hp(str(self.assistant.hp))

@@ -5,7 +5,6 @@ if TYPE_CHECKING:
     from modules.room import Room
     from modules.player import Player
 from dataclasses import dataclass
-from modules.attack import AttackData
 from modules.commandPiece import CommandPiece
 from modules.item import Item
 
@@ -27,7 +26,7 @@ class PieceScore(Enum):
     BELOW_LOW = 2
     LOW = 3
     MEDIUM = 4
-    ABOVE_MEDIUM = 5 
+    ABOVE_MEDIUM = 5
     HIGH = 6
     CRITICAL = 7
 
@@ -36,7 +35,7 @@ class AIProcessor:
     room: Room
     server: Server
     enemyStats: dict[str, EnemyStats]
-    possiblyDefenceless: list[Player]
+    possiblyDefenseless: list[Player]
 
     __slots__ = tuple(__annotations__)
 
@@ -45,7 +44,7 @@ class AIProcessor:
         self.room = player.room
         self.server = player.server
         self.enemyStats = dict()
-        self.possiblyDefenceless = list()
+        self.possiblyDefenseless = list()
 
     def checkEnemyStats(self):
         for player in self.room.players:
@@ -53,8 +52,8 @@ class AIProcessor:
                 continue
 
             if player.dead:
-                if player in self.possiblyDefenceless:
-                    self.possiblyDefenceless.remove(player)
+                if player in self.possiblyDefenseless:
+                    self.possiblyDefenseless.remove(player)
                 if player.name in self.enemyStats:
                     del self.enemyStats[player.name]
                 continue
@@ -71,9 +70,9 @@ class AIProcessor:
                     # Took damage
                     stats.damageCombo += 1
 
-                    if stats.damageCombo > 1 and not player in self.possiblyDefenceless:
+                    if stats.damageCombo > 1 and not player in self.possiblyDefenseless:
                         # Possibly defenseless
-                        self.possiblyDefenceless.append(player)
+                        self.possiblyDefenseless.append(player)
                 elif stats.lastHP <= player.hp:
                     # Didn't take damage
                     stats.damageCombo = 0
@@ -103,7 +102,6 @@ class AIProcessor:
                 items.append(piece)
         for id in self.player.magics:
             item = self.server.itemManager.getItem(id)
-            
             if self.player.mp < item.subValue:
                 continue
             if attr is not None and item.attribute != attr:
@@ -128,38 +126,22 @@ class AIProcessor:
         pieces: list[CommandPiece] = []
         for piece in self.player.pieces:
             item = piece.getItemOrIllusion()
-            if item.defenseKind == "DFS":
-                if item.type == "MAGIC" and self.player.mp < item.subValue:
-                    continue
-                if forAttribute == "FIRE" and item.attribute not in ["WATER", "LIGHT"]:
-                    continue
-                elif forAttribute == "WATER" and item.attribute not in ["FIRE", "LIGHT"]:
-                    continue
-                elif forAttribute == "TREE" and item.attribute not in ["SOIL", "LIGHT"]:
-                    continue
-                elif forAttribute == "SOIL" and item.attribute not in ["TREE", "LIGHT"]:
-                    continue
-                elif forAttribute == "LIGHT" and item.attribute not in ["DARK"]:
-                    continue
-                pieces.append(piece)
+            if item.defenseKind != "DFS":
+                continue
+            if item.type == "MAGIC" and self.player.mp < item.subValue:
+                continue
+            if not Item.checkDefense(forAttribute, item.attribute):
+                continue
+            pieces.append(piece)
         for id in self.player.magics:
             item = self.server.itemManager.getItem(id)
-
+            if item.defenseKind != "DFS":
+                continue
             if self.player.mp < item.subValue:
                 continue
-            
-            if item.defenseKind == "DFS":
-                if forAttribute == "FIRE" and item.attribute not in ["WATER", "LIGHT"]:
-                    continue
-                elif forAttribute == "WATER" and item.attribute not in ["FIRE", "LIGHT"]:
-                    continue
-                elif forAttribute == "TREE" and item.attribute not in ["SOIL", "LIGHT"]:
-                    continue
-                elif forAttribute == "SOIL" and item.attribute not in ["TREE", "LIGHT"]:
-                    continue
-                elif forAttribute == "LIGHT" and item.attribute not in ["DARK"]:
-                    continue
-                pieces.append(CommandPiece(item, True))
+            if not Item.checkDefense(forAttribute, item.attribute):
+                continue
+            pieces.append(CommandPiece(item, True))
         return sorted(pieces, key = lambda x: x.getItemOrIllusion().getDef())
 
     def getCounterRings(self, forAttribute: str) -> list[CommandPiece]:
@@ -167,82 +149,45 @@ class AIProcessor:
         harms: list[str] = []
         for piece in self.player.pieces:
             item = piece.getItemOrIllusion()
-            if item.defenseKind == "COUNTER" and not (item.isAtkHarm() and item.attackExtra in harms):
-                if forAttribute == "FIRE" and item.attribute not in ["WATER", "LIGHT"]:
-                    continue
-                elif forAttribute == "WATER" and item.attribute not in ["FIRE", "LIGHT"]:
-                    continue
-                elif forAttribute == "TREE" and item.attribute not in ["SOIL", "LIGHT"]:
-                    continue
-                elif forAttribute == "SOIL" and item.attribute not in ["TREE", "LIGHT"]:
-                    continue
-                elif forAttribute == "LIGHT" and item.attribute not in ["DARK"]:
-                    continue
-                if item.isAtkHarm():
-                    harms.append(item.attackExtra)
-                items.append(piece)
-        
+            if item.defenseKind != "COUNTER" or (item.isAtkHarm() and item.attackExtra in harms):
+                continue
+            if not Item.checkDefense(forAttribute, item.attribute):
+                continue
+            if item.isAtkHarm():
+                harms.append(item.attackExtra)
+            items.append(piece)
+
         return items
 
-    def getCounterPiece(self, forAttribute: Optional[str], counter: bool, magic: bool, weapon: bool) -> Optional[CommandPiece]:
+    def getCounterPiece(self, forAttribute: Optional[str], isCounterAttack: bool, isMagicAttack: bool, isWeaponAttack: bool) -> Optional[CommandPiece]:
         for piece in self.player.pieces:
             item = piece.getItemOrIllusion()
-            if "REFLECT" in item.defenseExtra or\
-               "FLICK" in item.defenseExtra or\
-               "BLOCK" in item.defenseExtra:
-                if ("MAGIC" in item.defenseExtra and not magic) or\
-                   ("WEAPON" in item.defenseExtra and not weapon):
-                    continue
-                if item.type == "MAGIC" and self.player.mp < item.subValue:
-                    continue
-                if item.defenseExtra == "REFLECT_ANY":
-                    return piece
-                if forAttribute is None or counter:
-                    continue
-                elif "WEAPON" in item.defenseExtra:
-                    if forAttribute == "FIRE" and item.attribute not in ["WATER", "LIGHT"]:
-                        continue
-                    elif forAttribute == "WATER" and item.attribute not in ["FIRE", "LIGHT"]:
-                        continue
-                    elif forAttribute == "TREE" and item.attribute not in ["SOIL", "LIGHT"]:
-                        continue
-                    elif forAttribute == "SOIL" and item.attribute not in ["TREE", "LIGHT"]:
-                        continue
-                    elif forAttribute == "LIGHT" and item.attribute not in ["DARK"]:
-                        continue
-                    elif forAttribute == "DARK" and item.attribute not in ["LIGHT"]:
-                        continue
+            if item.type == "MAGIC" and self.player.mp < item.subValue:
+                continue
+            if item.defenseExtra == "REFLECT_ANY":
                 return piece
+            if (not item.hasSpecialMagicDefense() or not isMagicAttack) and \
+                (not item.hasSpecialWeaponDefense() or not isWeaponAttack):
+                continue
+            if forAttribute is None or isCounterAttack:
+                continue
+            elif "WEAPON" in item.defenseExtra and not Item.checkDefense(forAttribute, item.attribute):
+                continue
+            return piece
         for id in self.player.magics:
             item = self.server.itemManager.getItem(id)
-
             if self.player.mp < item.subValue:
                 continue
-
-            if "REFLECT" in item.defenseExtra or\
-               "FLICK" in item.defenseExtra or\
-               "BLOCK" in item.defenseExtra:
-                if ("MAGIC" in item.defenseExtra and not magic) or\
-                   ("WEAPON" in item.defenseExtra and not weapon):
-                    continue
-                if item.defenseExtra == "REFLECT_ANY":
-                    return CommandPiece(item, True)
-                if forAttribute is None or counter:
-                    continue
-                elif "WEAPON" in item.defenseExtra:
-                    if forAttribute == "FIRE" and item.attribute not in ["WATER", "LIGHT"]:
-                        continue
-                    elif forAttribute == "WATER" and item.attribute not in ["FIRE", "LIGHT"]:
-                        continue
-                    elif forAttribute == "TREE" and item.attribute not in ["SOIL", "LIGHT"]:
-                        continue
-                    elif forAttribute == "SOIL" and item.attribute not in ["TREE", "LIGHT"]:
-                        continue
-                    elif forAttribute == "LIGHT" and item.attribute not in ["DARK"]:
-                        continue
-                    elif forAttribute == "DARK" and item.attribute not in ["LIGHT"]:
-                        continue
+            if item.defenseExtra == "REFLECT_ANY":
                 return CommandPiece(item, True)
+            if (not item.hasSpecialMagicDefense() or not isMagicAttack) and \
+                (not item.hasSpecialWeaponDefense() or not isWeaponAttack):
+                continue
+            if forAttribute is None or isCounterAttack:
+                continue
+            elif "WEAPON" in item.defenseExtra and not Item.checkDefense(forAttribute, item.attribute):
+                continue
+            return CommandPiece(item, True)
         return None
 
     def checkIsItemGood(self, item: Item) -> bool:
@@ -258,10 +203,9 @@ class AIProcessor:
         if item.attackExtra in ["SET_ASSISTANT", "INCREASE_ATK", "MAGIC_FREE", "REVIVE", "DYING_ATTACK"]:
             return True
 
-        if item.defenseKind in ["COUNTER"]:
-            return True
-
-        if item.defenseExtra in ["REFLECT_ANY"]:
+        # Counters
+        if item.defenseKind in ["COUNTER"] or \
+            item.defenseExtra in ["REFLECT_ANY"]:
             return True
 
         return False
@@ -341,7 +285,7 @@ class AIProcessor:
     def canBeInstantlyKilledBy(self, defender: Player, pieceOrPieces: CommandPiece | list[CommandPiece], overrideDamage: Optional[int] = None) -> bool:
         if type(pieceOrPieces) is CommandPiece:
             item = pieceOrPieces.getItemOrIllusion()
-            if defender.disease == "HEAVEN" and item.attackExtra in ["COLD", "FEVER", "HELL", "HEAVEN"]:
+            if defender.disease == "HEAVEN" and item.attackExtra in Item.ALL_DISEASES:
                 return True
             if not item.attribute:
                 return False
@@ -370,14 +314,14 @@ class AIProcessor:
                 if item.type == "MAGIC":
                     usedMagic = True
             assert damage == overrideDamage, f"Damage mismatch! {damage} != {overrideDamage} (Items: {repr(pieceOrPieces)})"
-            if defender.disease == "HEAVEN" and any(harm in harms for harm in ["COLD", "FEVER", "HELL", "HEAVEN"]):
+            if defender.disease == "HEAVEN" and any(harm in harms for harm in Item.ALL_DISEASES):
                 return True
             if not attribute:
                 return False
             return defender.hp <= damage
         else:
             raise NotImplementedError()
-        
+
     def convertOwnedPiecesToPieces(self, pieceList: list[CommandPiece]):
         for idx, attackPiece in enumerate(pieceList):
             if attackPiece.illusionItem is None:
@@ -408,7 +352,7 @@ class AIProcessor:
             magicFree = self.getPiecesByAE("MAGIC_FREE")
             if self.player.mp < item.subValue and len(magicFree) == 0:
                 return
-                
+
             # Avoid spamming magics with a low hit rate.
             if isBound and 0 < item.hitRate < random.randrange(1, 100 + 1):
                 return
@@ -417,7 +361,7 @@ class AIProcessor:
             if item.attackExtra in ["WIDE_ATK", "DOUBLE_ATK"] or\
                item.defenseExtra in ["FLICK_MAGIC", "BLOCK_WEAPON"]:
                 return
-            
+
             if item.attackKind == "INCREASE_YEN":
                 if self.player.yen >= 50:
                     if isBound:
@@ -430,13 +374,13 @@ class AIProcessor:
                 else:
                     scores[score].append((self.player, piece))
                 return
-            
+
             if item.attackKind in ["SET_ASSISTANT", "INCREASE_HP", "REMOVE_ALL_HARMS", "REMOVE_LOWER_HARMS"]:
                 for ally in self.getAllies():
                     score = PieceScore.LOW
 
                     if item.attackKind == "SET_ASSISTANT":
-                        if ally.assistantType:
+                        if ally.assistant is not None:
                             if isBound:
                                 continue
                             score = PieceScore.DISCARD
@@ -444,7 +388,7 @@ class AIProcessor:
                             score = PieceScore.ABOVE_MEDIUM
 
                     elif item.attackKind == "INCREASE_HP":
-                        score = PieceScore.LOW if ally.hp >= 25 else PieceScore.CRITICAL  
+                        score = PieceScore.LOW if ally.hp >= 25 else PieceScore.CRITICAL
 
                     elif item.attackKind == "REMOVE_ALL_HARMS":
                         if not ally.disease:
@@ -472,7 +416,7 @@ class AIProcessor:
 
                     if item.attackExtra == "INCREASE_ATK" and item.getAtk() < 10:
                         score = PieceScore.LOW
-                    
+
                     if item.attackKind == "ATK":
                         if self.canBeInstantlyKilledBy(target, piece):
                             score = PieceScore.HIGH
@@ -480,7 +424,7 @@ class AIProcessor:
                             score = PieceScore.ABOVE_MEDIUM
 
                     elif item.attackKind == "ADD_HARM":
-                        isDisease = item.attackExtra in ["COLD", "FEVER", "HELL", "HEAVEN"]
+                        isDisease = item.attackExtra in Item.ALL_DISEASES
                         # TODO: If that could be assured to be possible, we could allow the bot to kill the player by worsening the disease until heaven break.
                         if (isDisease and target.disease == "HELL") or item.attackExtra in target.harms:
                             continue
@@ -491,7 +435,7 @@ class AIProcessor:
                         scores[score].append((target, [piece, random.choice(magicFree)]))
                     else:
                         scores[score].append((target, piece))
-        
+
         for id in self.player.magics:
             item = self.server.itemManager.getItem(id)
             buildMagicScore(CommandPiece(item, True), True)
@@ -512,7 +456,7 @@ class AIProcessor:
                         score = PieceScore.DISCARD
 
                         if item.attackKind == "SET_ASSISTANT":
-                            if not ally.assistantType:
+                            if ally.assistant is None:
                                 score = PieceScore.ABOVE_MEDIUM
 
                         elif item.attackKind == "INCREASE_HP":
@@ -528,16 +472,16 @@ class AIProcessor:
                         elif item.attackKind == "REMOVE_LOWER_HARMS":
                             if ally.hasLowerDisease():
                                 score = PieceScore.MEDIUM
-                                
+
                         scores[score].append((ally, piece))
                 else:
                     for target in self.getEnemies():
                         score = PieceScore.MEDIUM
-                        
+
                         if item.attackKind == "REMOVE_ABILITIES":
                             if len(target.magics) == 0:
                                 score = PieceScore.DISCARD
-                    
+
                         scores[score].append((target, piece))
 
             elif item.type == "TRADE":
@@ -556,7 +500,7 @@ class AIProcessor:
 
                 for target in self.getEnemies():
                     score = PieceScore.MEDIUM
-                    
+
                     if item.attackKind == "SELL":
                         if pieceToSell is None:
                             # Always try to sell mortars when we have one
@@ -594,7 +538,7 @@ class AIProcessor:
                             score = PieceScore.DISCARD
                         elif self.player.yen < 5:
                             score = PieceScore.LOW
-                        
+
                     scores[score].append((target, piece))
 
             elif item.type == "WEAPON":
@@ -607,28 +551,28 @@ class AIProcessor:
                             score = PieceScore.HIGH
                         elif item.attackExtra == "DYING_ATTACK":
                             score = PieceScore.LOWEST
-                        elif "REFLECT" in item.defenseExtra or "FLICK" in item.defenseExtra or "BLOCK" in item.defenseExtra:
+                        elif item.hasSpecialWeaponDefense() or item.hasSpecialMagicDefense():
                             #TODO: Increase if we can kill the enemy AND we know it doesn't have defense
                             score = PieceScore.BELOW_LOW
                         elif item.hitRate > 0:
                             score = PieceScore.MEDIUM if self.room.getAliveCount() <= 2 else PieceScore.ABOVE_MEDIUM
-                        else:            
+                        else:
                             if len(pieces) == 0:
                                 pieces.append(piece)
                                 if item.attackExtra == "MAGICAL":
                                     damage = self.player.mp * 2
                                 else:
                                     damage = item.getAtk()
-                                isSpecial = item.attribute in ["DARK", "LIGHT"]
+                                isSpecialAttr = item.attribute in ["DARK", "LIGHT"]
 
                                 magicFree = self.getPiecesByAE("MAGIC_FREE")
-                                
+
                                 # TODO: Try to make it wait to stack a better attack, like with increase_atk and others extras
                                 # TODO: Only override item attribute if we can get a good damage doing so
                                 # TODO: If weapon or extras has ADD_HARM, try to stack as much damage as possible
 
                                 if item.attackExtra != "INCREASE_ATK":
-                                    if isSpecial:
+                                    if isSpecialAttr:
                                         increaseAtkAttrib = self.getPiecesByAE("INCREASE_ATK", item.attribute)
                                         pieces += increaseAtkAttrib
                                         damage += self.getPiecesDamage(increaseAtkAttrib)
@@ -637,7 +581,7 @@ class AIProcessor:
                                         pieces += increaseAtk
                                         damage += self.getPiecesDamage(increaseAtk)
 
-                                if not isSpecial:
+                                if not isSpecialAttr:
                                     doubleAtk = self.getPiecesByAE("DOUBLE_ATK")[1:]
                                     if item.attackExtra != "DOUBLE_ATK" and len(doubleAtk) > 0:
                                         if damage >= 10:
@@ -671,8 +615,8 @@ class AIProcessor:
                                 score = PieceScore.BELOW_LOW
                             else:
                                 score = PieceScore.MEDIUM
-                        
-                        scores[score].append((target, pieces if len(pieces) > 0 else piece))      
+
+                        scores[score].append((target, pieces if len(pieces) > 0 else piece))
 
             elif item.type == "MAGIC":
                 buildMagicScore(piece, False)
@@ -762,30 +706,33 @@ class AIProcessor:
 
     def buildDefense(self) -> list[CommandPiece]:
         assert(self.room.turn.currentAttack is not None)
-        
+
         # TODO: Build weighted list with all defense possibilities
         # TODO: Better MP Handling
-        
+
         ret: list[CommandPiece] = []
 
-        damage, attr = self.room.turn.currentAttack.damage, self.room.turn.currentAttack.attribute
-        print("Damage:", damage, "| Attr:", attr)
+        attacker = self.room.turn.currentAttack.attacker
+        damage = self.room.turn.currentAttack.damage
+        attr = self.room.turn.currentAttack.attribute
+        print("Attacker:", attacker, "| Damage:", damage, "| Attr:", attr)
 
         if damage <= 0:
             # TODO: Try to reflect, flick or block
             return ret
 
-        isCounter = self.room.turn.currentAttack.pieceList[0].item.defenseKind == "COUNTER"
-        isMagic = self.room.turn.currentAttack.pieceList[0].item.type == "MAGIC"
-        isWeapon = self.room.turn.currentAttack.pieceList[0].item.type == "WEAPON"
+        isCounterAttack = self.room.turn.currentAttack.pieceList[0].item.defenseKind == "COUNTER"
+        isMagicAttack = self.room.turn.currentAttack.pieceList[0].item.type == "MAGIC"
+        isWeaponAttack = self.room.turn.currentAttack.pieceList[0].item.type == "WEAPON"
+        print("Counter:", isCounterAttack, "| Magic:", isMagicAttack, "| Weapon:", isWeaponAttack)
 
         protectors = self.getDefensePieces(attr) if attr is not None else []
-        counter = self.getCounterPiece(attr, isCounter, isMagic, isWeapon)
+        counter = self.getCounterPiece(attr, isCounterAttack, isMagicAttack, isWeaponAttack)
 
         attrRemoved = False
         if "GLORY" not in self.player.harms and attr and (removeAttributePiece := self.player.getOwnedPieceById(195)) is not None and not protectors and not counter:
             protectors_ne = self.getDefensePieces("")
-            counter_ne = self.getCounterPiece("", isCounter, isMagic, isWeapon)
+            counter_ne = self.getCounterPiece("", isCounterAttack, isMagicAttack, isWeaponAttack)
             if protectors_ne or counter_ne:
                 # We can use NE protectors or counters, so lets erase the attribute with the wings.
                 protectors = protectors_ne
@@ -798,7 +745,7 @@ class AIProcessor:
             ret.append(counter)
             return ret
 
-        if isCounter:
+        if isCounterAttack:
             # This is a counter-attack so ignore defense items
             return ret
 
@@ -829,7 +776,7 @@ class AIProcessor:
         if len(ret) == (1 if attrRemoved else 0) and counter and (damage >= 5 or self.player.hp <= 15 or self.player.hp <= damage or any(piece.item.isAtkHarm() for piece in self.room.turn.currentAttack.pieceList)):
             ret.append(counter)
             return ret
-        
+
         ret += defPiece
 
         if len(ret) == 1 and attr != "DARK" and ret[0].item.id == 195:

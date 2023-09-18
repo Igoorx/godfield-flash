@@ -9,6 +9,7 @@ from modules.commandPiece import CommandPiece
 from helpers.xmlbuilder import XMLBuilder
 
 import random
+import string
 
 __all__ = ("Session",)
 
@@ -21,20 +22,21 @@ def request(name):
     return wrapper
 
 class Session:
-    name: str
+    userName: str
     ipAddress: str
     language: str
     oneTimeID: str
     state: str
     user: User
     server: Server
+    serverMode: str
     room: Optional[Room]
     player: Optional[Player]
 
     __slots__ = tuple(__annotations__)
 
-    def __init__(self, user: User,  xmldict):
-        self.name = xmldict["name"]
+    def __init__(self, user: User,  xmldict: dict):
+        self.userName = xmldict["name"]
         self.ipAddress = xmldict["ipAddress"] if "ipAddress" in xmldict else ""
         self.language = xmldict["language"]
         self.oneTimeID = xmldict["oneTimeID"]
@@ -49,84 +51,82 @@ class Session:
         self.user.sendXml(xml)
 
     def onDisconnect(self):
-        self.server.removeUser(self)
-        self.state = "DISCONNECTED"
-        
         if self.room is not None:
             if self.player is not None:
                 self.room.exitGame(self.player)
                 self.player = None
             self.room.removeUser(self)
             self.room = None
+        self.server.removeUser(self)
+        self.state = "DISCONNECTED"
 
-    def onLogin(self):
-        serverMode = self.user.getServerMode()
+    def onLogin(self, serverMode: str):
+        self.server.addUser(self)
+        self.serverMode = serverMode
         if serverMode == "TRAINING":
-            self.gotoTraining()
-            self.server.addUser(self)
+            self.onTrainingLogin()
         elif serverMode == "FREE_FIGHT":
-            for room in self.server.rooms.values():
-                privPlayer = room.getPlayer(self.name)
-                if room.playing and privPlayer is not None:
-                    self.player = privPlayer
-                    self.player.session = self
-                    self.player.disableAIProcessor()
-                    self.room = room
-                    self.room.addUser(self)
-                    break
-            if self.room is None:
-                self.gotoLobby()
-            self.server.addUser(self)
+            self.onFreeFightLogin()
         else:
             raise Exception("Unsupported server mode")
+
+    def onTrainingLogin(self):
+        self.room = self.server.createRoom("Training", serverMode=self.serverMode)
+        self.room.language = self.language
+        self.room.playersLimit = 4
+        self.room.time = 1475196662616
+
+        self.player = Player(self.room, self, "SINGLE")
+        self.player.ready = True
+        self.room.players.append(self.player)
+
+        botNames = ["Princess Kaguya", "Sinbad", "Odin", "Santa Claus", "Robin Hood"]
+        for name in random.sample(botNames, 3):
+            player = Player(self.room, name, "SINGLE")
+            player.ready = True
+            player.enableAIProcessor()
+            self.room.players.append(player)
+
+        self.room.addUser(self)
+        self.room.startGame()
+
+    def onFreeFightLogin(self):
+        for room in self.server.rooms.values():
+            privPlayer = room.getPlayer(self.userName)
+            if room.playing and privPlayer is not None:
+                self.player = privPlayer
+                self.player.session = self
+                self.player.disableAIProcessor()
+                self.room = room
+                self.room.addUser(self)
+                break
+        if self.room is None:
+            self.gotoLobby()
 
     def gotoLobby(self):
         self.sendXml(self.server.buildLobbyXml())
         self.state = "LOBBY"
 
-    def gotoTraining(self):
-        self.room = self.server.createRoom("", "".join(__import__("random").choice(__import__("string").ascii_uppercase + __import__("string").digits) for _ in range(12)))
-        self.room.serverMode = self.user.getServerMode()
-        self.room.language = self.language
-        self.room.playersLimit = 4
-        self.room.time = 1475196662616
-
-        self.player = Player(self, self.name, "SINGLE")
-        self.player.ready = True
-        self.room.players.append(self.player)
-
-        botNames = ["Princess Kaguya", "Sinbad", "Odin", "Santa Claus", "Robin Hood"]
-        for _ in range(3):
-            player = Player(None, random.choice(botNames), "SINGLE")
-            player.server = self.server
-            player.room = self.room
-            player.ready = True
-            player.enableAIProcessor()
-            self.room.players.append(player)
-            botNames.remove(player.name)
-
-        self.room.addUser(self)
-        self.room.startGame()
-        
     def onRequest(self, request, xmldict):
         if request != "ENTER" and self.room is None:
             return
-        
+
         handler = handlers.get(request)
         if handler is not None:
             handler(self, xmldict)
-    
+
     @request("ENTER")
     def enterHandler(self, xmldict):
         assert self.room is None
+        assert self.serverMode != "TRAINING"
 
+        # TODO: Password
         roomName = xmldict.get("name")
         roomId = xmldict.get("id")
         room = None
 
         if roomName is not None:
-            room = self.server.createRoom(roomName)
-            room.serverMode = self.user.getServerMode()
+            room = self.server.createRoom(roomName, serverMode=self.serverMode)
             room.language = self.language
             room.playersLimit = int(xmldict.get("playersLimit", 2))
             room.fast = "isFast" in xmldict
@@ -142,12 +142,11 @@ class Session:
     def exitHandler(self, xmldict):
         assert self.room is not None
 
-        self.room.removeUser(self)
         if self.player is not None:
             self.room.exitGame(self.player)
-
+            self.player = None
+        self.room.removeUser(self)
         self.room = None
-        self.player = None
 
         self.gotoLobby()
 
@@ -160,8 +159,8 @@ class Session:
         if comment is None or len(comment.strip()) == 0:
             return
 
-        self.room.sendChat(self.name, comment, self.player.team if toTeam and self.player is not None else "")
-        
+        self.room.sendChat(self.userName, comment, self.player.team if toTeam and self.player is not None else "")
+
         if self.user.ipAddress != "127.0.0.1":
             return
 
@@ -193,19 +192,19 @@ class Session:
 
         elif comment == "die":
             if self.player is not None:
-                self.player.hp = 0
+                self.player.takeDamage(999)
 
         elif comment.startswith("kill"):
             for player in self.room.players:
                 if player == self.player or player.dead:
                     continue
-                player.hp = 0
+                player.takeDamage(999)
                 if len(args) == 0 or args[0] != "all":
                     break
 
         elif comment == "sdie":
             builder = XMLBuilder("DIE")
-            builder.player.name(self.name)
+            builder.player.name(self.userName)
             self.sendXml(builder)
 
         elif comment.startswith("fnd") and len(args) > 0:
@@ -226,9 +225,7 @@ class Session:
             if len(self.room.players) == 0: # TODO: Move this to room class
                 self.room.teamPlay = team != "SINGLE"
             for _ in range(count):
-                player = Player(None, ''.join(__import__("random").choice(__import__("string").ascii_uppercase + __import__("string").digits) for _ in range(12)), team)
-                player.server = self.server
-                player.room = self.room
+                player = Player(self.room, ''.join(random.choice(string.ascii_uppercase + string.digits) for _ in range(12)), team)
                 player.ready = True
                 player.enableAIProcessor()
                 self.room.players.append(player)
@@ -311,7 +308,7 @@ class Session:
             piece = [piece]
 
         piece = [CommandPiece.fromDict(self.server.itemManager, x) for x in piece]
-        
+
         decidedExchange = None
         if power is not None:
             decidedExchange = dict()
@@ -338,12 +335,12 @@ class FakeSession(Session):
     __slots__ = tuple(__annotations__)
 
     def __init__(self):
-        self.name = str()
+        self.userName = str()
         self.ipAddress = str()
         self.language = str()
         self.oneTimeID = str()
         self.state = "UNKNOWN"
-        
+
         self.room = None
         self.player = None
 

@@ -37,7 +37,7 @@ class AttackData:
         self.isAction = False
         self.isLast = False
         self.isCounter = False
-        
+
         self.damage = -1
         self.chance = 0
         self.extra = list()
@@ -66,12 +66,12 @@ class AttackData:
         clone.isAction = self.isAction
         clone.isLast = self.isLast
         clone.isCounter = self.isCounter
-        
+
         clone.damage = self.damage
         clone.chance = self.chance
         clone.extra = self.extra
         clone.attribute = self.attribute
-        
+
         clone.mortar = self.mortar
         clone.assistantType = self.assistantType
 
@@ -82,29 +82,22 @@ class AttackData:
         clone.decidedPiece = self.decidedPiece
         clone.decidedAssistant = self.decidedAssistant
         return clone
-        
-    def canBeDefendedBy(self, defenseAttr: Optional[str]):
-        if not self.attribute or self.attribute == "DARK":
-            return True
-        if not defenseAttr:
-            return self.attribute == "DARK"
-        if self.attribute == "FIRE":
-            return defenseAttr in ["WATER", "LIGHT"]
-        elif self.attribute == "WATER":
-            return defenseAttr in ["FIRE", "LIGHT"]
-        elif self.attribute == "TREE":
-            return defenseAttr in ["SOIL", "LIGHT"]
-        elif self.attribute == "SOIL":
-            return defenseAttr in ["TREE", "LIGHT"]
-        elif self.attribute == "LIGHT":
-            return defenseAttr == "DARK"
-        assert False, "Unknown attribute!"
 
     def isValidAttackItem(self, item: Item, isFirstPiece: bool, hasUsedMagic: bool) -> bool:
         if isFirstPiece:
-            return item.type != "PROTECTOR" and (item.type not in ["MAGIC", "SUNDRY"] or item.attackKind != "")
-        
-        return item.attackKind not in ["DO_NOTHING", "DISCARD", "SELL", "EXCHANGE", "MYSTERY"] and\
-                ((item.attackExtra in ["INCREASE_ATK", "DOUBLE_ATK", "WIDE_ATK", "ADD_ATTRIBUTE"] and\
-                    self.pieceList[0].item.type == "WEAPON" and self.pieceList[0].item.hitRate == 0) or\
-                    (hasUsedMagic and item.attackExtra == "MAGIC_FREE"))
+            if item.type == "PROTECTOR":
+                return False
+            return item.type not in ["MAGIC", "SUNDRY"] or item.attackKind != ""
+
+        if item.attackKind in ["DO_NOTHING", "DISCARD", "SELL", "EXCHANGE", "MYSTERY"]:
+            return False
+
+        if hasUsedMagic and item.attackExtra == "MAGIC_FREE":
+            return True
+
+        firstPiece = self.pieceList[0]
+        return (
+            firstPiece.item.type == "WEAPON"
+            and firstPiece.item.hitRate == 0
+            and item.attackExtra in ["INCREASE_ATK", "DOUBLE_ATK", "WIDE_ATK", "ADD_ATTRIBUTE"]
+        )

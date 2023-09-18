@@ -50,10 +50,17 @@ class Server(protocol.ServerFactory):
         if self.mode != "ANY" and self.mode not in self.typesPorts:
             print(f"WARNING: Invalid server mode \"{self.mode}\", using default server mode (ANY).")
             self.mode = "ANY"
+
+    def getServerType(self, host) -> str:
+        if self.mode != "ANY":
+            return self.mode
+        for type, port in self.typesPorts.items():
+            if port == host.port:
+                return type
         
     def getUser(self, name: str) -> Optional[Session]:
         for user in self.users:
-            if user is not None and user.name == name:
+            if user is not None and user.userName == name:
                 return user
         return None
 
@@ -73,7 +80,7 @@ class Server(protocol.ServerFactory):
 
         for user in self.users:
             bUser = builder.user
-            bUser.name(user.name)
+            bUser.name(user.userName)
             if user.room is not None:
                 bUser.roomID(str(user.room.id))
         
@@ -101,18 +108,22 @@ class Server(protocol.ServerFactory):
         self.users.append(user)
 
         builder = XMLBuilder("ADD_USER")
-        builder.user.name(user.name)
+        builder.user.name(user.userName)
         self.lobbyBroadXml(builder)
 
     def removeUser(self, user: Session):
         self.users.remove(user)
 
         builder = XMLBuilder("REMOVE_USER")
-        builder.user.name(user.name)
+        builder.user.name(user.userName)
         self.lobbyBroadXml(builder)
 
-    def createRoom(self, name: str, password: str = "") -> Room:
-        room = Room(self, name, password)
+    def createRoom(self, name: str, password: str = "", serverMode: str = "") -> Room:
+        if serverMode == "":
+            serverMode = self.mode
+        assert self.mode == "ANY" or serverMode == self.mode
+
+        room = Room(self, serverMode, name, password)
 
         self.lastRoomId += 1
         self.rooms[self.lastRoomId] = room
