@@ -45,6 +45,7 @@ class CommandPiece:
     @staticmethod
     def fromDict(itemManager: ItemManager, x: dict):
         piece = CommandPiece(itemManager.getItem(int(x["item"])))
+        piece.illusionItemIndex = int(x["illusionItemIndex"]) if "illusionItemIndex" in x else -1
         piece.abilityIndex = int(x["abilityIndex"]) if "abilityIndex" in x else -1
         piece.isAbility = "isAbility" in x
         return piece
