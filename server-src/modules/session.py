@@ -65,10 +65,10 @@ class Session:
         self.serverMode = serverMode
         if serverMode == "TRAINING":
             self.onTrainingLogin()
-        elif serverMode == "FREE_FIGHT":
+        elif serverMode == "FREE_FIGHT" or serverMode == "FREE_FIGHT_PRIVATE":
             self.onFreeFightLogin()
         else:
-            raise Exception("Unsupported server mode")
+            raise Exception(f"Unsupported server mode \"{serverMode}\"")
 
     def onTrainingLogin(self):
         self.room = self.server.createRoom("Training", serverMode=self.serverMode)
@@ -161,7 +161,7 @@ class Session:
 
         self.room.sendChat(self.userName, comment, self.player.team if toTeam and self.player is not None else "")
 
-        if self.user.ipAddress != "127.0.0.1":
+        if self.user.ipAddress != "127.0.0.1" and not self.user.ipAddress.startswith("10.0.0."):
             return
 
         args = comment.split(" ")[1:]

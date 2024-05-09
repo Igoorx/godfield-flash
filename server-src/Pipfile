@@ -8,6 +8,8 @@ verify_ssl = true
 [packages]
 twisted = "*"
 numpy = "*"
+autobahn = "*"
+argparse = "*"
 
 [requires]
 python_version = "3"

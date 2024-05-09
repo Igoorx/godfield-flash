@@ -7,8 +7,9 @@ from helpers.xmltodict import parse as xmltodict
 from modules.session import Session
 
 from twisted.internet import protocol
+from autobahn.twisted import websocket
 
-__all__ = ("User",)
+__all__ = ("User", "WebSocketUser")
 
 
 class User(protocol.Protocol):
@@ -35,7 +36,7 @@ class User(protocol.Protocol):
         data = data.decode()
 
         if data == "<policy-file-request/>\0":
-            self.transport.write(b"<cross-domain-policy><allow-access-from domain=\"*\" to-ports=\"*\" /></cross-domain-policy>\0")
+            self.sendPayload(b"<cross-domain-policy><allow-access-from domain=\"*\" to-ports=\"*\" /></cross-domain-policy>\0")
             self.transport.loseConnection()
             return
 
@@ -53,10 +54,13 @@ class User(protocol.Protocol):
 
         self.recvd = str()
 
+    def sendPayload(self, payload):
+        self.transport.write(payload)
+
     def sendXml(self, xml):
         if self.session is not None:
             print(f"SEND ({self.session.userName}): {repr(str(xml))}")
-        self.transport.write((str(xml) + chr(0)).encode())
+        self.sendPayload((str(xml) + chr(0)).encode())
 
     def parseXml(self, xml: str):
         xmldict: Any = xmltodict(xml)
@@ -92,3 +96,21 @@ class User(protocol.Protocol):
                 return
             
             self.session.onRequest(request, xmldict)
+
+class WebSocketUser(websocket.WebSocketServerProtocol, User):
+    def __init__(self):
+        websocket.WebSocketServerProtocol.__init__(self)
+        User.__init__(self)
+
+    def onOpen(self):
+        User.connectionMade(self)
+
+    def onClose(self, wasClean, code, reason):
+        User.connectionLost(self, reason)
+
+    def onMessage(self, payload, isBinary):
+        assert isBinary, "Binary message expected."
+        User.dataReceived(self, payload)
+
+    def sendPayload(self, payload):
+        self.sendMessage(payload, True)

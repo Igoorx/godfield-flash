@@ -3,12 +3,14 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Optional
 if TYPE_CHECKING:
     from modules.session import Session
-from modules.user import User
+from modules.user import User, WebSocketUser
 from modules.room import Room
 from modules.item import ItemManager
 from helpers.xmlbuilder import XMLBuilder
 
+import argparse
 from twisted.internet import reactor, protocol
+from autobahn.twisted import websocket
 
 __all__ = ("Server",)
 
@@ -130,14 +132,27 @@ class Server(protocol.ServerFactory):
         room.id = self.lastRoomId
 
         return room
+    
+class WebSocketServer(websocket.WebSocketServerFactory, Server):
+    protocol = WebSocketUser
 
+    def __init__(self, mode: str, language: str, serverNumber: int):
+        websocket.WebSocketServerFactory.__init__(self)
+        Server.__init__(self, mode, language, serverNumber)
 
 def main():
-    serverMode = argv[1] if len(argv) > 1 else "ANY"
-    serverLanguage = argv[2] if len(argv) > 2 else "EN"
-    serverNumber = int(argv[3]) if len(argv) > 3 else 1
-        
-    factory = Server(serverMode, serverLanguage, serverNumber)
+    parser = argparse.ArgumentParser(description="GodField Server")
+    parser.add_argument('--mode', type=str, default="ANY", help='Server mode (default: ANY)')
+    parser.add_argument('--language', type=str, default="EN", help='Server language (default: EN)')
+    parser.add_argument('--number', type=int, default=1, help='Server number (default: 1)')
+    parser.add_argument('--ws', action='store_true', help='Enable WebSocket mode (default: False)')
+
+    args = parser.parse_args()
+
+    if args.ws:
+        factory = WebSocketServer(args.mode, args.language, args.number)
+    else:
+        factory = Server(args.mode, args.language, args.number)
 
     if factory.mode == "ANY":
         for port in factory.typesPorts.values():
