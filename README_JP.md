@@ -19,32 +19,35 @@ https://user-images.githubusercontent.com/14041768/159081100-ff837b56-2b9d-4c80-
 
 ## フラッシュは死んだ! どうする？
 
-このリポジトリには、Flashで書かれた旧バージョンの「ゴッドフィールド」が含まれています。しかし、Flashはもうほとんどのブラウザでサポートされていませんが、まだサポートしているブラウザを使用するか、Flash Projector経由でゲームのswfを直接実行すれば、ゴッドフィールドを動かすことは可能ですので、ご安心ください。
-[Flash Projectorはこちらからダウンロードできます。](https://fpdownload.macromedia.com/pub/flashplayer/updaters/32/flashplayer_32_sa.exe)
+このリポジトリには、Flashで書かれた旧バージョンの「ゴッドフィールド」が含まれています。残念ながら、Flashはもうほとんどのブラウザでサポートされていません。しかし、以下の方法を使えば、まだゴッドフィールドを動かすことは可能です：
+
+1. 最近ゴッドフィールドにかなりのサポートを得た、Flashエミュレータの[Ruffle](https://github.com/ruffle-rs/ruffle)を使用する。
+2. Flashをサポートしているブラウザを使用する。
+3. Flash Projector経由でゲームのSWFファイルを直接実行する。[Flash Projectorはこちらからダウンロードできます。](https://fpdownload.macromedia.com/pub/flashplayer/updaters/32/flashplayer_32_sa.exe)
 
 ## 必要条件
 
-サーバーエミュレータを動作させるには、「Python 3.9+」が必要です。すべての依存関係は "requirements.txt" を使ってインストールできますが、方法がわかりません？ [要求ファイルについてはこちらをご覧ください。](https://pip.pypa.io/en/stable/user_guide/#requirements-files)
+サーバーエミュレータを動作させるには、**Python 3.9+**が必要です。`requirements.txt`を使ってすべての依存関係をインストールしてください。方法がわかりませんか？ [要求ファイルについてはこちらをご覧ください。](https://pip.pypa.io/en/stable/user_guide/#requirements-files)
 
 ## 迅速なセットアップ
 
-まず、以下の行を `hosts` ファイルに追加する必要があります。
+まず、以下の行を`hosts`ファイルに追加します：
 
 ```
 127.0.0.1 www.godfield.net
-127.0.0.1 static.godfield.net
+127.0.0.1 static.godfield.net 
 127.0.0.1 training.godfield.net
 127.0.0.1 enfreefight.godfield.net
 127.0.0.1 freefight.godfield.net
-127.0.0.1 enfreefightprivate.godfield.net
+127.0.0.1 enfreefightprivate.godfield.net 
 127.0.0.1 freefightprivate.godfield.net
 ```
 
-<i>注意：後で削除してください。そうしないと、もう公式の「ゴッドフィールド」に到達できなくなります。</i>
+*注意：後でこれらのエントリを削除してください。そうしないと、公式の「ゴッドフィールド」サイトに到達できなくなります。*
 
-その後、`client-files` フォルダ内の python スクリプト `webserver.py` を実行し、コマンドライン `server.py ANY JP` で `server-src` フォルダ内の python スクリプト `server.py` を実行します。
+次に、`client-files`フォルダ内のスクリプト`webserver.py`を実行し、Ruffleエミュレータを使用しても問題ない場合は、`server-src`フォルダ内のスクリプト`server.py`をコマンドライン`server.py --language JP --ws`で実行します。それ以外の場合は、`server.py --language JP`だけで実行してください。
 
-これでゲームを開く準備ができました! Flashをサポートしているブラウザで、`http://www.godfield.net/en.html`というリンクを開くだけです。あるいは、["Flash Projector"](https://fpdownload.macromedia.com/pub/flashplayer/updaters/32/flashplayer_32_sa.exe)を使って、CTRL+Oを押すと、ウィンドウが表示されます。このウィンドウで、`Location`テキストフィールドに `http://www.godfield.net/game/godfield.swf?language=ja&valid=1` を入力して、`OK`ボタンを押すだけでよいのです。
+これでゲームを開く準備ができました！ウェブブラウザで`http://www.godfield.net/index.html`に移動するだけで、Ruffleを使ってゲームが実行されるはずです。Adobe Flash Playerを使用したい場合は、まだFlashをサポートしているブラウザで`http://www.godfield.net/og_index.html`に移動できます。あるいは、[Flash Projector](https://fpdownload.macromedia.com/pub/flashplayer/updaters/32/flashplayer_32_sa.exe)を使うこともできます。実行ファイルを実行してCTRL+Oを押すと、ウィンドウが表示されるはずです。このウィンドウで、`Location`テキストフィールドに`http://www.godfield.net/game/godfield.swf?language=ja&valid=1`と入力して、`OK`をクリックするだけです。
 
 ## 備考
 

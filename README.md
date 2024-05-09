@@ -19,18 +19,21 @@ This server emulator is not nearly perfect, but it works! (as shown in the video
 
 https://user-images.githubusercontent.com/14041768/159081100-ff837b56-2b9d-4c80-a722-9e6e32924994.mp4
 
-## Flash is dead! Now what?
+## Flash is Dead! Now What?
 
-This repository contains the old God Field that was written in Flash, however flash isn't supported by most browsers anymore, but don't worry, it is still possible to run God Field if you use some browser that still has support for it or if you run the game's swf directly via Flash Projector.
-[You can download the Flash Projector here.](https://fpdownload.macromedia.com/pub/flashplayer/updaters/32/flashplayer_32_sa.exe)
+This repository contains the old God Field game that was originally written in Flash. Unfortunately, Flash is no longer supported by most browsers. However, it is still possible to run God Field using the following methods:
+
+1. Use [Ruffle](https://github.com/ruffle-rs/ruffle), a Flash emulator that recently got pretty decent support for God Field.
+2. Use a browser that supports Flash.
+3. Run the game's SWF file directly via Flash Projector. [You can download the Flash Projector here.](https://fpdownload.macromedia.com/pub/flashplayer/updaters/32/flashplayer_32_sa.exe)
 
 ## Requirements
 
-To run the server emulator, you will need <b>Python 3.9+</b>. You can install all dependencies using the `requirements.txt`, don't know how? [Click here to see more about the requirements file.](https://pip.pypa.io/en/stable/user_guide/#requirements-files)
+To run the server emulator, you will need **Python 3.9+**. Install all dependencies using `requirements.txt`. Not sure how? [Click here to learn more about the requirements file.](https://pip.pypa.io/en/stable/user_guide/#requirements-files)
 
-## Quick set-up
+## Quick Setup
 
-First you need to add these lines to your `hosts` file:
+First, add the following lines to your `hosts` file:
 
 ```
 127.0.0.1 www.godfield.net
@@ -42,11 +45,11 @@ First you need to add these lines to your `hosts` file:
 127.0.0.1 freefightprivate.godfield.net
 ```
 
-<i>Be aware: You should remove them later, otherwise you will not be able to reach the official God Field anymore.</i>
+*Note: Be sure to remove these entries later; otherwise, you will be unable to reach the official God Field site.*
 
-After that, run `webserver.py` from `client-files` folder and `server.py` from `server-src` folder.
+Next, execute the script `webserver.py` in the `client-files` folder. To execute the script `server.py` in the `server-src` folder, run the command `server.py --ws` if you are okay with using the Ruffle emulator; otherwise, run `server.py` directly.
 
-You're now ready to open the game! Just open the link `http://www.godfield.net/en.html` in a browser that still supports Flash. Alternatively you can use the [Flash Projector](https://fpdownload.macromedia.com/pub/flashplayer/updaters/32/flashplayer_32_sa.exe), just open it and press CTRL+O, a window should appear, in this window you just have to input `http://www.godfield.net/game/godfield.swf` in the `Location` text field and press the button `OK`.
+You're now ready to open the game! Simply navigate to `http://www.godfield.net/en.html` in your web browser, and the game should run using Ruffle. If you prefer to use Adobe Flash Player, you can navigate to `http://www.godfield.net/og_en.html` in a browser that still supports it. Alternatively, you can use the [Flash Projector](https://fpdownload.macromedia.com/pub/flashplayer/updaters/32/flashplayer_32_sa.exe). Just run the executable and press CTRL+O; a window should appear. In this window, just input `http://www.godfield.net/game/godfield.swf` in the `Location` text field and click `OK`.
 
 ## Remarks
 

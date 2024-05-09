@@ -5,7 +5,6 @@
 		<title>ゴッドフィールド</title>
 		<link rel="shortcut icon" href="/favicon.ico">
 		<link rel="stylesheet" href="../stylesheets/default.css">
-		<script src="https://unpkg.com/@ruffle-rs/ruffle"></script>
 		<script type="text/javascript" src="/scripts/swfobject.js"></script>
 		<script>
 		  (function(i,s,o,g,r,a,m){i['GoogleAnalyticsObject']=r;i[r]=i[r]||function(){
@@ -62,42 +61,6 @@
 			<h2 style="margin: 15px 5px 5px;">ゴッドフィールド運営 <a href="https://twitter.com/guuji">グウジ</a></h2>
 		</div>
 		<script type="text/javascript">
-			const queryString = window.location.search;
-			const urlParams = new URLSearchParams(queryString);
-			const ipAddress = urlParams.get('ipAddress') ?? '127.0.0.1';
-
-			window.RufflePlayer.config = {
-				socketProxy: [
-					{
-						host: "training.godfield.net", // The address of the server that Flash tries to connect to
-						port: 58001, // The port that Flash tries to connect to
-						proxyUrl: `ws://${ipAddress}:58001`, // The actual proxy that Ruffle will connect to, instead of the above server
-					},
-					// EN
-					{
-						host: "enfreefight.godfield.net",
-						port: 58151,
-						proxyUrl: `ws://${ipAddress}:58151`,
-					},
-					{
-						host: "enfreefightprivate.godfield.net",
-						port: 58251,
-						proxyUrl: `ws://${ipAddress}:58251`,
-					},
-					// JP
-					{
-						host: "freefight.godfield.net",
-						port: 58101,
-						proxyUrl: `ws://${ipAddress}:58101`,
-					},
-					{
-						host: "freefightprivate.godfield.net",
-						port: 58201,
-						proxyUrl: `ws://${ipAddress}:58201`,
-					},
-				]
-			};
-
 			var swfObject = new SWFObject("/game/godfield.swf", "godfield", "800", "600", "10", "#ffffff");
 			swfObject.addParam("wmode", "window");
 			swfObject.addParam("menu", false);
