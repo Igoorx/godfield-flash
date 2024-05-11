@@ -272,7 +272,7 @@ class Room:
 
         print("Remove player:", player.name)
 
-        if self.playing:
+        if self.playing and (len(self.users) > 1 or player.session not in self.users):
             player.session = None
             player.enableAIProcessor()
             assert player.aiProcessor is not None
@@ -364,7 +364,7 @@ class Room:
         self.nextInning()
 
     def endGame(self):
-        self.playing = False
+        #self.playing = False
         self.ended = True
 
         for player in self.players:

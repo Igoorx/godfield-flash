@@ -113,4 +113,6 @@ class WebSocketUser(websocket.WebSocketServerProtocol, User):
         User.dataReceived(self, payload)
 
     def sendPayload(self, payload):
+        if self.state != websocket.protocol.WebSocketProtocol.STATE_OPEN:
+            return
         self.sendMessage(payload, True)
